@@ -7,50 +7,48 @@ import path from "path";
 import { sendSuccessResponse, sendErrorResponse, sendBadRequestResponse, sendForbiddenResponse, sendCreatedResponse, sendUnauthorizedResponse } from '../utils/ResponseUtils.js';
 
 
-
 export const register = async (req, res) => {
     try {
-        const { contactNo, name, email, password } = req.body;
+        const { contactNo, email, password, name, role } = req.body;
 
-        // Check if the email or contactNo already exists
-        const userByEmail = await User.findOne({ email });
-        const userBycontactNo = await User.findOne({ contactNo });
-
-        if (userByEmail) {
-            return res.status(400).json({
-                message: "Email already in use",
-                success: false,
-            });
+        // Check for contactNo uniqueness if provided
+        if (contactNo) {
+            const userByContact = await User.findOne({ contactNo });
+            if (userByContact) {
+                return sendBadRequestResponse(res, "ContactNo already taken");
+            }
         }
 
-        if (userBycontactNo) {
-            return res.status(400).json({
-                message: "ContactNo already taken",
-                success: false,
-            });
+        // Check for email uniqueness if provided
+        if (email) {
+            const userByEmail = await User.findOne({ email });
+            if (userByEmail) {
+                return sendBadRequestResponse(res, "Email already in use");
+            }
         }
 
+        if (!password) {
+            return sendBadRequestResponse(res, "Password is required");
+        }
         const hashedPass = await bcrypt.hash(password, 10);
 
-        await User.create({
+        const data = await User.create({
             name,
             email,
             contactNo,
             password: hashedPass,
+            role: role || 'user',
         });
 
-        return res.status(201).json({
-            message: "Account created successfully",
-            success: true,
-        });
+        return sendCreatedResponse(res, "Account created successfully", data);
     } catch (error) {
-        console.log(error);
+        return sendErrorResponse(res, 500, error.message);
     }
 };
 
 export const editProfile = async (req, res) => {
     try {
-        const userId = req.id;
+        const userId = req.params.id;
         const {
             name,
             username,
@@ -60,7 +58,7 @@ export const editProfile = async (req, res) => {
             isPrivate,
         } = req.body;
 
-        if (!req.user || req.user._id.toString() !== userId) {
+        if (!req.user || (req.user._id.toString() !== userId && req.user.role !== 'admin')) {
             if (req.file) {
                 const filePath = path.resolve(req.file.path);
                 if (fs.existsSync(filePath)) {
@@ -204,7 +202,7 @@ export const getUserById = async (req, res) => {
         // Use findById for more robust lookup
         const user = await User.findById(id);
         if (!user) {
-            return sendErrorResponse(res, 404, "User not found");
+            return sendErrorResponse(res, 404, "User not found", []);
         }
 
         // Prepare user response (exclude password)
@@ -219,7 +217,7 @@ export const getUserById = async (req, res) => {
 
 export const editUser = async (req, res) => {
     try {
-        const userId = req.id;
+        const userId = req.params.id;
         const {
             name,
             username,
@@ -229,7 +227,7 @@ export const editUser = async (req, res) => {
             isPrivate,
         } = req.body;
 
-        if (!req.user || req.user._id.toString() !== userId) {
+        if (!req.user || (req.user._id.toString() !== userId && req.user.role !== 'admin')) {
             if (req.file) {
                 const filePath = path.resolve(req.file.path);
                 if (fs.existsSync(filePath)) {
@@ -273,12 +271,13 @@ export const editUser = async (req, res) => {
         return sendSuccessResponse(res, "User updated successfully", userResponse);
 
     } catch (error) {
-        console.error("Error in editUser:", error);
-        return res.status(500).json({
-            message: "Something went wrong while updating the profile",
-            success: false,
-            error: error.message,
-        });
+        if (req.file) {
+            const filePath = path.resolve(req.file.path);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+            }
+        }
+        return sendErrorResponse(res, 500, error.message);
     }
 };
 
@@ -287,12 +286,12 @@ export const deleteUser = async (req, res) => {
         const userId = req.params.id;
 
         if (!userId) {
-            return res.status(400).json({ message: "User ID is required", success: false });
+            return sendBadRequestResponse(res, "User ID is required");
         }
 
         const user = await User.findById(userId);
         if (!user) {
-            return res.status(404).json({ message: "User not found", success: false });
+            return sendErrorResponse(res, 404, "User not found");
         }
 
         // 1. Delete user's posts
@@ -339,15 +338,8 @@ export const deleteUser = async (req, res) => {
         // 9. Finally, delete the user
         await User.findByIdAndDelete(userId);
 
-        return res.status(200).json({
-            message: "User and all associated data deleted successfully",
-            success: true,
-        });
+        return sendSuccessResponse(res, "User and all associated data deleted successfully");
     } catch (error) {
-        console.log("Error deleting user:", error);
-        return res.status(500).json({
-            message: "Something went wrong while deleting the user",
-            success: false,
-        });
+        return sendErrorResponse(res, 500, "Something went wrong while deleting the user");
     }
 };

@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import registerModel from "../models/registerModel.js";
+import UserModel from "../models/userModel.js";
 import {
     sendErrorResponse,
     sendForbiddenResponse,
@@ -25,7 +25,7 @@ export const UserAuth = async (req, res, next) => {
             const decodedObj = jwt.verify(token, process.env.JWT_SECRET);
             const { _id, role, isAdmin } = decodedObj;
 
-            const user = await registerModel.findById(_id).select('-password');
+            const user = await UserModel.findById(_id).select('-password');
             if (!user) {
                 return sendNotFoundResponse(res, "User not found");
             }

@@ -3,7 +3,6 @@ import { ThrowError } from "../utils/ErrorUtils.js"
 import bcrypt from "bcryptjs";
 import { sendSuccessResponse, sendErrorResponse, sendBadRequestResponse, sendUnauthorizedResponse } from '../utils/ResponseUtils.js';
 import nodemailer from "nodemailer"
-import { phoneNoOtp } from "./userController.js";
 import twilio from 'twilio';
 
 
@@ -39,23 +38,24 @@ const phoneNoOtp = async (contactNo, otp) => {
 
 // Utility to send OTP to email
 async function sendOtpEmail(email, otp) {
-    // Configure your transporter (update with your SMTP details)
+
     const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: process.env.SMTP_PORT,
-        secure: false,
+        service: "gmail",
         auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
+            user: process.env.MY_GMAIL,
+            pass: process.env.MY_PASSWORD,
         },
+        tls: { rejectUnauthorized: false },
     });
 
-    await transporter.sendMail({
-        from: '"Your App" <no-reply@yourapp.com>',
+    const mailOptions = {
+        from: process.env.MY_GMAIL,
         to: email,
-        subject: "Your OTP Code",
-        text: `Your OTP code is: ${otp}`,
-    });
+        subject: "Password Reset OTP",
+        text: `Your OTP for password reset is: ${otp}. It is valid for 10 minutes.`,
+    };
+
+    await transporter.sendMail(mailOptions);
 }
 
 export const userLogin = async (req, res) => {
@@ -64,14 +64,23 @@ export const userLogin = async (req, res) => {
 
         // 1. Contact Number Login (OTP)
         if (contactNo && !email && !password) {
+            // Check if user exists with this contactNo
+            const user = await User.findOne({ contactNo });
+            if (!user) {
+                return sendErrorResponse(res, 404, "User not found with this contact number");
+            }
+
             // Generate OTP (e.g., 6 digit random number)
-            const otp = Math.floor(100000 + Math.random() * 900000);
+            const otp = generateOTP();
+
+            // Set OTP and expiry (e.g., 5 minutes from now)
+            user.otp = otp;
+            user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+            await user.save();
 
             // Send OTP to contactNo
             await phoneNoOtp(contactNo, otp);
 
-            // You should store the OTP in DB or cache (e.g., Redis) with expiry for verification step
-            // For now, just return success
             return sendSuccessResponse(res, "OTP sent to contact number", { contactNo });
         }
 
@@ -91,6 +100,7 @@ export const userLogin = async (req, res) => {
             return sendUnauthorizedResponse(res, "Invalid password");
         }
 
+        // Always update lastLogin on successful login
         user.lastLogin = new Date();
         await user.save();
 
@@ -107,6 +117,7 @@ export const userLogin = async (req, res) => {
             email: user.email,
             role: user.role || 'user',
             isAdmin: user.role === 'admin',
+            lastLogin: user.lastLogin,
             token: token
         });
     } catch (error) {
@@ -142,7 +153,9 @@ export const VerifyPhone = async (req, res) => {
             return sendBadRequestResponse(res, "Invalid OTP.");
         }
 
+        user.lastLogin = new Date();
         user.otp = undefined;
+        user.otpExpiry = undefined;
         await user.save();
 
         const token = await user.getJWT();
@@ -164,32 +177,37 @@ export const forgotPassword = async (req, res) => {
 
         // 1. Forgot by Contact Number
         if (contactNo && !email) {
-            const otp = Math.floor(100000 + Math.random() * 900000);
+            const otp = generateOTP()
+
+            const user = await User.findOne({ contactNo: contactNo });
+            if (!user) {
+                return sendErrorResponse(res, 404, "User not found");
+            }
 
             // Send OTP to contactNo
             await phoneNoOtp(contactNo, otp);
-
-            // TODO: Store OTP in DB or cache for verification (not shown here)
-            // Example: await OtpModel.create({ contactNo, otp, expiresAt: Date.now() + 5*60*1000 });
+            user.otp = otp;
+            user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
+            await user.save();
 
             return sendSuccessResponse(res, "OTP sent to contact number", { contactNo });
         }
 
         // 2. Forgot by Email
         if (email && !contactNo) {
-            const otp = Math.floor(100000 + Math.random() * 900000);
-
+            const otp = generateOTP()
             // Find user by email
             const user = await User.findOne({ email: email.toLowerCase() });
             if (!user) {
                 return sendErrorResponse(res, 404, "User not found");
             }
 
-            // Send OTP to email
             await sendOtpEmail(email, otp);
-
-            // TODO: Store OTP in DB or cache for verification (not shown here)
-            // Example: await OtpModel.create({ email, otp, expiresAt: Date.now() + 5*60*1000 });
+            // Set OTP and expiry (e.g., 5 minutes from now)
+            user.otp = otp;
+            user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
+            await user.save();
+            // Send OTP to email
 
             return sendSuccessResponse(res, "OTP sent to email", { email });
         }
@@ -202,37 +220,52 @@ export const forgotPassword = async (req, res) => {
     }
 };
 
-//Verify Email Otp
-export const VerifyEmail = async (req, res) => {
+//Verify Otp
+export const VerifyOtp = async (req, res) => {
     try {
-        const { email, otp } = req.body;
+        const { contactNo, email, otp } = req.body;
 
-        if (!email || !otp) {
-            return sendBadRequestResponse(res, "Please provide email and OTP.");
+        if (contactNo && otp) {
+            const user = await User.findOne({ contactNo });
+            if (!user) {
+                return sendErrorResponse(res, 404, "User not found.");
+            }
+            if (!user.otp || !user.otpExpiry) {
+                return sendBadRequestResponse(res, "No OTP found. Please request a new OTP.");
+            }
+            if (user.otp !== otp) {
+                return sendBadRequestResponse(res, "Invalid OTP.");
+            }
+            if (user.otpExpiry < Date.now()) {
+                return sendBadRequestResponse(res, "OTP has expired. Please request a new OTP.");
+            }
+            user.lastLogin = new Date();
+            user.otp = undefined;
+            user.otpExpiry = undefined;
+            await user.save();
+            return sendSuccessResponse(res, "OTP verified successfully.");
+        } else if (email && otp) {
+            const user = await User.findOne({ email: email.toLowerCase() });
+            if (!user) {
+                return sendErrorResponse(res, 404, "User not found.");
+            }
+            if (!user.otp || !user.otpExpiry) {
+                return sendBadRequestResponse(res, "No OTP found. Please request a new OTP.");
+            }
+            if (user.otp !== otp) {
+                return sendBadRequestResponse(res, "Invalid OTP.");
+            }
+            if (user.otpExpiry < Date.now()) {
+                return sendBadRequestResponse(res, "OTP has expired. Please request a new OTP.");
+            }
+            user.lastLogin = new Date();
+            user.otp = undefined;
+            user.otpExpiry = undefined;
+            await user.save();
+            return sendSuccessResponse(res, "OTP verified successfully.");
+        } else {
+            return sendBadRequestResponse(res, "Please provide contactNo or email and OTP.");
         }
-
-        const user = await User.findOne({ email: email });
-        if (!user) {
-            return sendErrorResponse(res, 404, "User not found.");
-        }
-
-        // Check if OTP exists and is not expired
-        if (!user.otp || !user.otpExpiry) {
-            return sendBadRequestResponse(res, "No OTP found. Please request a new OTP.");
-        }
-
-        if (user.otp !== otp) {
-            return sendBadRequestResponse(res, "Invalid OTP.");
-        }
-
-        if (user.otpExpiry < Date.now()) {
-            return sendBadRequestResponse(res, "OTP has expired. Please request a new OTP.");
-        }
-
-        await user.save();
-
-        return sendSuccessResponse(res, "OTP verified successfully.");
-
     } catch (error) {
         return ThrowError(res, 500, error.message);
     }
@@ -269,24 +302,27 @@ export const resetPassword = async (req, res) => {
 // Change Password for user
 export const changePassword = async (req, res) => {
     try {
-        const { oldPassword, newPassword, confirmPassword } = req.body;
+        const { currentPassword, newPassword, confirmPassword } = req.body;
 
-        if (!oldPassword || !newPassword || !confirmPassword) {
-            return sendBadRequestResponse(res, "oldPassword, newPassword, and confirmPassword are required.");
+        if (!currentPassword || !newPassword || !confirmPassword) {
+            return sendBadRequestResponse(res, "currentPassword, newPassword, and confirmPassword are required.");
         }
 
-        // Get user from the authenticated request
+        if (!req.user) {
+            return sendUnauthorizedResponse(res, "You must be logged in to change your password.");
+        }
+
         const user = await User.findById(req.user._id);
         if (!user) {
-            return sendErrorResponse(res, 404, "User not found");
+            return sendErrorResponse(res, 404, "User not found.");
         }
 
-        const isMatch = await bcrypt.compare(oldPassword, user.password);
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
         if (!isMatch) {
             return sendBadRequestResponse(res, "Current password is incorrect.");
         }
 
-        if (newPassword === oldPassword) {
+        if (newPassword === currentPassword) {
             return sendBadRequestResponse(res, "New password cannot be the same as current password.");
         }
 
@@ -294,14 +330,12 @@ export const changePassword = async (req, res) => {
             return sendBadRequestResponse(res, "New password and confirm password do not match.");
         }
 
-        const hashedPassword = await bcrypt.hash(newPassword, 10);
-        user.password = hashedPassword;
+        user.password = await bcrypt.hash(newPassword, 10);
         await user.save();
 
         return sendSuccessResponse(res, "Password changed successfully.");
-
     } catch (error) {
-        return sendErrorResponse(res, 500, error.message);
+        return ThrowError(res, 500, error.message);
     }
 };
 

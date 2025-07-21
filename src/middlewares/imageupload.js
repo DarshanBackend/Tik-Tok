@@ -9,10 +9,15 @@ dotenv.config();
 // Configure storage
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        let uploadPath = 'public/images'; // Default path
-
+        let uploadPath;
         if (file.fieldname === 'profilePic') {
             uploadPath = 'public/profilePic';
+        } else if (file.fieldname === 'audio_image') {
+            uploadPath = 'public/audio_image';
+        } else if (file.fieldname === 'audio') {
+            uploadPath = 'public/audio';
+        } else {
+            uploadPath = 'public/other';
         }
 
         if (!fs.existsSync(uploadPath)) {
@@ -27,11 +32,26 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-    const allowedFieldNames = ['profilePic'];
-    if (allowedFieldNames.includes(file.fieldname)) {
-        cb(null, true);
+    const isAudio = file.mimetype.startsWith('audio/');
+    const isImage = file.mimetype.startsWith('image/');
+    const isOctetStream = file.mimetype === 'application/octet-stream';
+    const ext = path.extname(file.originalname).toLowerCase();
+    const isJfifExt = ext === '.jfif';
+
+    if (file.fieldname === 'audio') {
+        if (isAudio) {
+            cb(null, true);
+        } else {
+            cb(new Error('File for "audio" field must be an audio file.'), false);
+        }
+    } else if (file.fieldname === 'audio_image' || file.fieldname === 'profilePic') {
+        if (isImage || isOctetStream || isJfifExt) {
+            cb(null, true);
+        } else {
+            cb(new Error(`File for "${file.fieldname}" field must be an image.`), false);
+        }
     } else {
-        cb(new Error(`Please upload a file with one of these field names: ${allowedFieldNames.join(', ')}`));
+        cb(new Error(`Invalid field name for file upload: ${file.fieldname}`), false);
     }
 };
 
@@ -65,27 +85,40 @@ const handleMulterError = (err, req, res, next) => {
 
 const convertJfifToJpeg = async (req, res, next) => {
     try {
-        if (!req.file) return next();
+        if (!req.files) return next();
 
-        const file = req.file;
-        const ext = path.extname(file.originalname).toLowerCase();
+        const conversionPromises = [];
 
-        if (ext === '.jfif' || file.mimetype === 'image/jfif' || file.mimetype === 'application/octet-stream') {
-            const inputPath = file.path;
-            const outputPath = inputPath.replace('.jfif', '.jpg');
+        for (const fieldName in req.files) {
+            const files = req.files[fieldName];
+            for (const file of files) {
+                const isImageField = fieldName === 'audio_image' || fieldName === 'profilePic';
+                if (!isImageField) continue;
 
-            await sharp(inputPath)
-                .jpeg()
-                .toFile(outputPath);
+                const ext = path.extname(file.originalname).toLowerCase();
+                const isConvertible = ext === '.jfif' || file.mimetype === 'image/jfif' || file.mimetype === 'application/octet-stream';
 
-            // Update the file path in req.file
-            file.path = outputPath;
-            file.filename = path.basename(outputPath);
+                if (isConvertible) {
+                    const promise = (async () => {
+                        const inputPath = file.path;
+                        const outputPath = inputPath.replace(/\.[^/.]+$/, "") + ".jpeg";
 
-            // Delete the original JFIF file
-            fs.unlinkSync(inputPath);
+                        await sharp(inputPath).jpeg().toFile(outputPath);
+
+                        if (fs.existsSync(inputPath)) {
+                            fs.unlinkSync(inputPath);
+                        }
+
+                        file.path = outputPath;
+                        file.filename = path.basename(outputPath);
+                        file.mimetype = 'image/jpeg';
+                    })();
+                    conversionPromises.push(promise);
+                }
+            }
         }
 
+        await Promise.all(conversionPromises);
         next();
     } catch (err) {
         console.error('Error in convertJfifToJpeg:', err);
@@ -93,5 +126,4 @@ const convertJfifToJpeg = async (req, res, next) => {
     }
 };
 
-export { upload, uploadHandlers };
-export default uploadHandlers;
+export { upload, convertJfifToJpeg, handleMulterError };
