@@ -1,7 +1,7 @@
 import express from "express";
 import { upload, convertJfifToJpeg } from "../middlewares/imageupload.js";
 import { isAdmin, isUser, UserAuth } from "../middlewares/auth.js";
-import { deleteUser, editProfile, editUser, getAllUsers, getUserById, register } from "../controllers/userController.js";
+import { deleteUser, editProfile, editUser, followOrUnfollow, getAllUsers, getUserById, register, searchUsers, suggestedUsers } from "../controllers/userController.js";
 import { changePassword, forgotPassword, resetPassword, userLogin, VerifyOtp, VerifyPhone } from "../controllers/loginController.js";
 import { addTermsOfServices, deleteTermsOfServices, getAllTermsOfServices, getTermsOfServicesById, updateTermsOfServices } from "../controllers/termsOfServicesController.js";
 import { addPrivacyPolicy, deletePrivacyPolicy, getAllPrivacyPolicy, getPrivacyPolicyById, updatePrivacyPolicy } from "../controllers/privacyPolicyController.js";
@@ -9,6 +9,7 @@ import { addHelpSupport, deleteHelpSupport, getAllHelpSupport, getHelpSupportByI
 import { addReportCategory, deleteReportCategory, getAllReportCategory, getReportCategoryById, updateReportCategory } from "../controllers/reportCategoryController.js";
 import { addReport, deleteReport, getAllReports, getReportById, getReportByUserId, updateReport } from "../controllers/reportController.js";
 import { addAudio, deleteAudio, getAllAudio, getAudioById, updateAudio } from "../controllers/audioController.js";
+import { addNewPost, commentPost, dislikePost, getAllPost, getCommentOfPost, getDrafts, getFollowingUsersPosts, getUserPost, likePost, publishDraft } from "../controllers/postController.js";
 
 
 const indexRoutes = express.Router()
@@ -28,6 +29,13 @@ indexRoutes.post("/forgotPassword", forgotPassword)
 indexRoutes.post("/VerifyEmail", VerifyOtp)
 indexRoutes.post("/resetPassword", UserAuth, resetPassword)
 indexRoutes.post("/changePassword", UserAuth, changePassword)
+
+
+indexRoutes.get("/searchUsers", UserAuth, searchUsers)
+indexRoutes.get("/suggestedUsers", UserAuth, isUser, suggestedUsers)
+indexRoutes.post("/followOrUnfollow/:id", UserAuth, isUser, followOrUnfollow)
+
+
 
 //TermsOfServices Routes
 indexRoutes.post("/addTermsOfServices", UserAuth, isAdmin, addTermsOfServices)
@@ -71,6 +79,18 @@ indexRoutes.get("/getAllAudio", UserAuth, getAllAudio)
 indexRoutes.get("/getAudioById/:id", UserAuth, getAudioById)
 indexRoutes.put("/updateAudio/:id", UserAuth, isAdmin, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'audio_image', maxCount: 1 }]), convertJfifToJpeg, updateAudio)
 indexRoutes.delete("/deleteAudio/:id", UserAuth, isAdmin, deleteAudio)
+
+//post Routes
+indexRoutes.post("/addNewPost", UserAuth, isUser, upload.fields([{ name: 'post_video', maxCount: 1 }, { name: 'post_image', maxCount: 1 }]), convertJfifToJpeg, addNewPost)
+indexRoutes.get("/getAllPost", UserAuth, getAllPost)
+indexRoutes.get("/getFollowingUsersPosts", UserAuth, getFollowingUsersPosts)
+indexRoutes.post("/publishDraft/:id", UserAuth, publishDraft)
+indexRoutes.get("/getDrafts", UserAuth, getDrafts)  
+indexRoutes.get("/getUserPost", UserAuth, getUserPost)  
+indexRoutes.post("/likePost/:id", UserAuth, likePost)
+indexRoutes.post("/dislikePost/:id", UserAuth, dislikePost)
+indexRoutes.post("/commentPost/:id", UserAuth, commentPost)
+indexRoutes.get("/getCommentOfPost/:id", UserAuth, getCommentOfPost)  
 
 
 export default indexRoutes

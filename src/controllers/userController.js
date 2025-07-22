@@ -4,7 +4,8 @@ import mongoose from "mongoose"
 import bcrypt from "bcryptjs";
 import fs from 'fs';
 import path from "path";
-import { sendSuccessResponse, sendErrorResponse, sendBadRequestResponse, sendForbiddenResponse, sendCreatedResponse, sendUnauthorizedResponse } from '../utils/ResponseUtils.js';
+import { sendSuccessResponse, sendErrorResponse, sendBadRequestResponse, sendForbiddenResponse, sendCreatedResponse, sendUnauthorizedResponse, sendNotFoundResponse } from '../utils/ResponseUtils.js';
+import { getReceiverSocketId, io } from "../socket/socket.js";
 
 
 export const register = async (req, res) => {
@@ -341,5 +342,140 @@ export const deleteUser = async (req, res) => {
         return sendSuccessResponse(res, "User and all associated data deleted successfully");
     } catch (error) {
         return sendErrorResponse(res, 500, "Something went wrong while deleting the user");
+    }
+};
+
+
+export const searchUsers = async (req, res) => {
+    try {
+        const { query } = req.query;
+
+        if (!query) {
+            return sendBadRequestResponse(res, "Query is required")
+        }
+
+        // Search for users whose username or fullname starts with the query (case-insensitive)
+        const users = await User.find({
+            $or: [
+                { username: { $regex: `^${query}`, $options: "i" } },
+                { name: { $regex: `^${query}`, $options: "i" } },
+            ],
+        }).select("username fullname profilePic _id");
+
+        if (users.length === 0) {
+            return sendNotFoundResponse(res, "No user found.")
+        }
+
+        return sendSuccessResponse(res, "user fetched successfully...", users)
+    } catch (error) {
+        return ThrowError(res, 500, error.message)
+    }
+};
+
+export const suggestedUsers = async (req, res) => {
+    try {
+        const suggestedUsers = await User.find({ _id: { $ne: req.id } }).select(
+            "-password"
+        );
+        if (!suggestedUsers) {
+            return sendBadRequestResponse(res, "Currently do not have any users")
+        }
+        return sendSuccessResponse(res, "Suggested users fetched successfully...", suggestedUsers)
+    } catch (error) {
+        console.log(error);
+    }
+};
+
+
+export const followOrUnfollow = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const followingUserId = req.params.id;
+
+        if (userId.toString() === followingUserId.toString()) {
+            return sendBadRequestResponse(res, "You can't follow and unfollow yourself")
+        }
+
+        const user = await User.findById(userId);
+        const followingUser = await User.findById(followingUserId);
+
+        if (!user || !followingUser) {
+            return sendBadRequestResponse(res, "User not found")
+        }
+
+        const isFollowing = user.followings.includes(followingUserId);
+
+        if (isFollowing) {
+            // Unfollow logic
+            await Promise.all([
+                User.findByIdAndUpdate(
+                    userId,
+                    { $pull: { followings: followingUserId } },
+                    { new: true }
+                ),
+                User.findByIdAndUpdate(
+                    followingUserId,
+                    { $pull: { followers: userId } },
+                    { new: true }
+                ),
+            ]);
+
+            const newUserData = await User.findById(userId);
+            const newFollowingUser = await User.findById(followingUserId);
+            return res.status(200).json({
+                message: "Unfollowing",
+                user: newUserData,
+                followingUser: newFollowingUser,
+                success: true,
+            });
+        } else {
+            // Follow logic
+            await Promise.all([
+                User.findByIdAndUpdate(
+                    userId,
+                    { $push: { followings: followingUserId } },
+                    { new: true }
+                ),
+                User.findByIdAndUpdate(
+                    followingUserId,
+                    { $push: { followers: userId } },
+                    { new: true }
+                ),
+            ]);
+
+            const newUserData = await User.findById(userId);
+            const newFollowingUser = await User.findById(followingUserId);
+
+            // ✅ Send real-time notification to followed user
+            //const notification = {
+            //type: "follow",
+            //message: `${user.username} started following you.`,
+            //senderId: userId,
+            //receiverId: followingUserId,
+            //timestamp: new Date(),
+            //};
+
+            const notification = {
+                type: "follow",
+                userId: userId,
+                userDetails: user,
+                message: `started following you.`,
+            };
+
+            const receiverSocketId = getReceiverSocketId(followingUserId);
+
+            if (receiverSocketId) {
+                io.to(receiverSocketId).emit("notification", notification);
+            }
+
+            return res.status(200).json({
+                message: "Following",
+                user: newUserData,
+                followingUser: newFollowingUser,
+                success: true,
+            });
+        }
+    } catch (error) {
+        return ThrowError(res, 500, error.message)
     }
 };
