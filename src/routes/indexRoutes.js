@@ -9,7 +9,7 @@ import { addHelpSupport, deleteHelpSupport, getAllHelpSupport, getHelpSupportByI
 import { addReportCategory, deleteReportCategory, getAllReportCategory, getReportCategoryById, updateReportCategory } from "../controllers/reportCategoryController.js";
 import { addReport, deleteReport, getAllReports, getReportById, getReportByUserId, updateReport } from "../controllers/reportController.js";
 import { addAudio, deleteAudio, getAllAudio, getAudioById, updateAudio } from "../controllers/audioController.js";
-import { addNewPost, commentPost, dislikePost, getAllPost, getCommentOfPost, getDrafts, getFollowingUsersPosts, getUserPost, likePost, publishDraft } from "../controllers/postController.js";
+import { addNewPost, commentPost, deleteComment, deletePost, dislikePost, getAllPost, getCommentOfPost, getDrafts, getFollowingUsersPosts, getLikeOfPost, getPostsByAudioId, getUserPost, likePost, publishDraft, removeDraft, updateComment, updatePost } from "../controllers/postController.js";
 
 
 const indexRoutes = express.Router()
@@ -83,14 +83,21 @@ indexRoutes.delete("/deleteAudio/:id", UserAuth, isAdmin, deleteAudio)
 //post Routes
 indexRoutes.post("/addNewPost", UserAuth, isUser, upload.fields([{ name: 'post_video', maxCount: 1 }, { name: 'post_image', maxCount: 1 }]), convertJfifToJpeg, addNewPost)
 indexRoutes.get("/getAllPost", UserAuth, getAllPost)
+indexRoutes.get("/getUserPost", UserAuth, getUserPost)
 indexRoutes.get("/getFollowingUsersPosts", UserAuth, getFollowingUsersPosts)
-indexRoutes.post("/publishDraft/:id", UserAuth, publishDraft)
-indexRoutes.get("/getDrafts", UserAuth, getDrafts)  
-indexRoutes.get("/getUserPost", UserAuth, getUserPost)  
+indexRoutes.get("/getPostsByAudioId/:audioId", UserAuth, getPostsByAudioId)
+indexRoutes.put("/updatePost/:postId", UserAuth, isUser, upload.fields([{ name: 'post_video', maxCount: 1 }, { name: 'post_image', maxCount: 1 }]), convertJfifToJpeg, updatePost)
+indexRoutes.delete("/deletePost/:postId", UserAuth, deletePost)
+indexRoutes.post("/publishDraft/:postId", UserAuth, publishDraft)
+indexRoutes.post("/removeDraft/:postId", UserAuth, removeDraft)
+indexRoutes.get("/getDrafts", UserAuth, getDrafts)
 indexRoutes.post("/likePost/:id", UserAuth, likePost)
+indexRoutes.get("/getLikeOfPost/:id", UserAuth, getLikeOfPost)
 indexRoutes.post("/dislikePost/:id", UserAuth, dislikePost)
 indexRoutes.post("/commentPost/:id", UserAuth, commentPost)
-indexRoutes.get("/getCommentOfPost/:id", UserAuth, getCommentOfPost)  
+indexRoutes.get("/getCommentOfPost/:id", UserAuth, getCommentOfPost)
+indexRoutes.put("/updateComment/:commentId", UserAuth, updateComment)
+indexRoutes.delete("/deleteComment/:commentId", UserAuth, deleteComment)
 
 
 export default indexRoutes
