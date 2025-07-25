@@ -32,7 +32,11 @@ const postSchema = new mongoose.Schema({
         type: String,
         enum: ['draft', 'published'],
         default: 'published'
-    }
+    },
+    taggedFriends: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }]
 }, { timestamps: true });
 
 const Post = mongoose.model('Post', postSchema);

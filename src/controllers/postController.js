@@ -2,10 +2,11 @@ import Post from '../models/postModel.js';
 import User from '../models/userModel.js';
 import Audio from '../models/audioModel.js'; // Import the Audio model
 import Comment from '../models/commentModel.js'; // Import the Comment model
-import { sendSuccessResponse, sendErrorResponse, sendBadRequestResponse } from '../utils/ResponseUtils.js';
+import { sendSuccessResponse, sendErrorResponse, sendBadRequestResponse, sendNotFoundResponse } from '../utils/ResponseUtils.js';
 import fs from 'fs';
 import path from 'path';
 import mongoose from 'mongoose';
+import moment from "moment";
 import { getReceiverSocketId, io } from '../socket/socket.js';
 import { ThrowError } from '../utils/ErrorUtils.js';
 
@@ -13,6 +14,8 @@ import { ThrowError } from '../utils/ErrorUtils.js';
 export const addNewPost = async (req, res) => {
     try {
         const { caption, status, audioId } = req.body;
+        let taggedFriends = req.body.taggedFriends;
+
         const imageFile = req.files?.post_image?.[0];
         const videoFile = req.files?.post_video?.[0];
         const userId = req.user._id;
@@ -22,67 +25,58 @@ export const addNewPost = async (req, res) => {
         }
 
         const user = await User.findById(userId);
-        if (!user) {
-            return sendBadRequestResponse(res, 'User not found.');
+        if (!user) return sendBadRequestResponse(res, 'User not found.');
+
+        // Parse taggedFriends (in case it's a JSON string or stringified array)
+        if (typeof taggedFriends === 'string') {
+            taggedFriends = JSON.parse(taggedFriends);
         }
 
-        if (audioId) {
-            if (!mongoose.Types.ObjectId.isValid(audioId)) {
-                if (req.files?.post_image?.[0]?.path) {
-                    fs.unlinkSync(req.files.post_image[0].path);
-                }
-                if (req.files?.post_video?.[0]?.path) {
-                    fs.unlinkSync(req.files.post_video[0].path);
-                }
-                return sendBadRequestResponse(res, 'Invalid Audio ID format.');
-            }
-            const audio = await Audio.findById(audioId);
-            if (!audio) {
-                if (req.files?.post_image?.[0]?.path) {
-                    fs.unlinkSync(req.files.post_image[0].path);
-                }
-                if (req.files?.post_video?.[0]?.path) {
-                    fs.unlinkSync(req.files.post_video[0].path);
-                }
-                return sendBadRequestResponse(res, 'Audio track not found.');
-            }
+        // ✅ Filter valid and unique ObjectIds only
+        taggedFriends = Array.isArray(taggedFriends)
+            ? [...new Set(taggedFriends.filter(id => mongoose.Types.ObjectId.isValid(id) && id !== userId.toString()))]
+            : [];
+
+        // Validate audioId if present
+        if (audioId && !mongoose.Types.ObjectId.isValid(audioId)) {
+            imageFile && fs.unlinkSync(imageFile.path);
+            videoFile && fs.unlinkSync(videoFile.path);
+            return sendBadRequestResponse(res, 'Invalid Audio ID format.');
         }
 
-        let imageUrl = '';
-        let videoUrl = '';
+        let imageUrl = imageFile ? `/public/post_images/${path.basename(imageFile.path)}` : '';
+        let videoUrl = videoFile ? `/public/post_videos/${path.basename(videoFile.path)}` : '';
 
-        if (imageFile) {
-            imageUrl = `/public/post_images/${path.basename(imageFile.path)}`;
-        }
-
-        if (videoFile) {
-            videoUrl = `/public/post_videos/${path.basename(videoFile.path)}`;
-        }
-
+        // Create post
         const newPost = await Post.create({
             user: userId,
             caption,
             image: imageUrl,
             video: videoUrl,
-            audioId: audioId, // Corrected field name to match the model
-            status: status || 'published'
+            audioId,
+            status: status || 'published',
+            taggedFriends
         });
 
         user.posts.push(newPost._id);
         await user.save();
 
+        // ✅ Add post to tagged users' taggedPosts
+        if (taggedFriends.length > 0) {
+            await User.updateMany(
+                { _id: { $in: taggedFriends } },
+                { $addToSet: { taggedPosts: newPost._id } }
+            );
+        }
+
         await newPost.populate('user', '-password');
-        await newPost.populate('audioId'); // Corrected field name for population
+        await newPost.populate('audioId');
 
         return sendSuccessResponse(res, 'Post created successfully.', newPost);
     } catch (error) {
-        console.error("Error in addNewPost:", error); // Added for better debugging
-        if (req.files?.post_image?.[0]?.path) {
-            fs.unlinkSync(req.files.post_image[0].path);
-        }
-        if (req.files?.post_video?.[0]?.path) {
-            fs.unlinkSync(req.files.post_video[0].path);
-        }
+        console.error("Error in addNewPost:", error);
+        req.files?.post_image?.[0]?.path && fs.unlinkSync(req.files.post_image[0].path);
+        req.files?.post_video?.[0]?.path && fs.unlinkSync(req.files.post_video[0].path);
         return sendErrorResponse(res, 500, error.message);
     }
 };
@@ -165,15 +159,12 @@ export const getPostsByAudioId = async (req, res) => {
     try {
         const { audioId } = req.params;
 
-        if (!audioId || typeof audioId !== "string") {
-            return sendBadRequestResponse(res, "Invalid or missing audioId");
+        if (!mongoose.Types.ObjectId.isValid(audioId)) {
+            return sendBadRequestResponse(res, "Invalid audioId")
         }
 
-        // match posts where audio path contains audioId (e.g. uploads/audio/audioId.mp3)
-        const audioRegex = new RegExp(`${audioId}\\.mp3$`, 'i'); // end with audioId.mp3
-
-        const posts = await Post.find({ audio: audioRegex })
-            .populate("user", "username profilepic");
+        const posts = await Post.find({ audioId: audioId })
+            .populate("user", "username profilePic");
 
         if (!posts || posts.length === 0) {
             return sendSuccessResponse(res, "No posts found with this audio", []);
@@ -293,6 +284,75 @@ export const deletePost = async (req, res) => {
     }
 };
 
+export const getTaggedPosts = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const user = await User.findById(userId).populate({
+            path: "taggedPosts",
+            populate: { path: "user", select: "username profilePic" }
+        });
+        if (!user) {
+            return sendBadRequestResponse(res, "User not found.");
+        }
+
+        // Filter: show only posts not created by the logged-in user
+        const taggedByOthers = user.taggedPosts.filter(post => {
+            return post.user._id.toString() !== userId.toString();
+        });
+
+        if (taggedByOthers.length === 0) {
+            return sendSuccessResponse(res, "No tagged posts found", []);
+        }
+
+        return sendSuccessResponse(res, "Tagged posts fetched successfully.", taggedByOthers);
+    } catch (err) {
+        return sendErrorResponse(res, 500, err.message);
+    }
+};
+
+export const savePost = async (req, res) => {
+    try {
+        const postId = req.params.id;
+        const userId = req.user._id
+
+        if (!mongoose.Types.ObjectId.isValid(postId)) {
+            return sendBadRequestResponse(res, "Invalid postId..")
+        }
+
+        const post = await Post.findById(postId)
+        if (!post || post.length === 0) {
+            return sendNotFoundResponse(res, "Post not found!!!")
+        }
+
+        const user = await User.findById(userId)
+        if (!user) {
+            return sendNotFoundResponse(res, "User not found!!!")
+        }
+
+        if (user.saved.includes(post._id)) {
+            await user.updateOne({ $pull: { saved: post._id } })
+            await user.save()
+            return res.status(200).json({
+                type: "unsaved",
+                message: "post removed from bookmark",
+                success: true
+            })
+        } else {
+            await user.updateOne({ $addToSet: { saved: post._id } })
+            await user.save()
+            return res.status(200).json({
+                type: "saved",
+                message: "post add to saved",
+                success: true
+            })
+        }
+    } catch (error) {
+        return ThrowError(res, 500, error.message)
+    }
+}
+
+
+
 
 
 export const likePost = async (req, res) => {
@@ -411,81 +471,210 @@ export const dislikePost = async (req, res) => {
     }
 };
 
+export const getLikedPostsByUser = async (req, res) => {
+    try {
+        const userId = req.user._id;
+
+        const user = await User.findById(userId).select("liked");
+        if (!user || !user.liked || user.liked.length === 0) {
+            return sendSuccessResponse(res, "User has not liked any posts.", []);
+        }
+
+        // Get posts liked by the user
+        const likedPosts = await Post.find({ _id: { $in: user.liked } })
+            .populate("user", "username profilePic")
+            .sort({ createdAt: -1 });
+
+        return sendSuccessResponse(res, "Liked posts fetched successfully.", likedPosts);
+    } catch (error) {
+        return sendErrorResponse(res, 500, error.message);
+    }
+};
+
+
 
 
 export const commentPost = async (req, res) => {
     try {
-        const postId = req.params.id
-        const userId = req.user._id
-        const { text } = req.body
+        const postId = req.params.id;
+        const userId = req.user._id;
+        const { text } = req.body;
 
-        if (postId) {
-            if (!mongoose.Types.ObjectId.isValid(postId)) {
-                return sendBadRequestResponse(res, "Invalid post Id")
-            }
-            var post = await Post.findById(postId)
-            if (!post) {
-                return sendBadRequestResponse(res, "No Post found")
-            }
+        if (!mongoose.Types.ObjectId.isValid(postId)) {
+            return sendBadRequestResponse(res, "Invalid post Id");
         }
 
-        const user = await User.findById(userId)
+        const post = await Post.findById(postId);
+        if (!post) {
+            return sendBadRequestResponse(res, "No Post found");
+        }
 
+        const user = await User.findById(userId);
         if (!text) {
-            return sendBadRequestResponse(res, "Comment can not be empty...")
+            return sendBadRequestResponse(res, "Comment can not be empty...");
         }
 
         const comment = await Comment.create({
             text,
             user: userId,
             post: postId
-        })
+        });
 
         await comment.populate({
             path: "user",
             select: "username profilepic",
-        })
+        });
 
-        post.comments.push(comment._id)
+        post.comments.push(comment._id);
+        await post.save();
 
-        await post.save()
-        await User.updateOne({ _id: userId }, { $addToSet: { comments: postId } })
+        await User.updateOne({ _id: userId }, { $addToSet: { comments: postId } });
 
-        if (post.user._id.toString() !== userId) {
-
+        if (post.user._id.toString() !== userId.toString()) {
             const notification = {
                 type: "comment",
-                userId: userId,
+                userId,
                 userDetails: user,
                 postId,
                 message: `commented on your post.`,
             };
 
             const receiverSocketId = getReceiverSocketId(post.user._id.toString());
-
             if (receiverSocketId) {
                 io.to(receiverSocketId).emit("notification", notification);
             }
         }
 
-        return sendSuccessResponse(res, "Comment added...", comment)
+        // ✅ Add timeAgo to the comment response
+        const duration = moment.duration(moment().diff(comment.createdAt));
+        let timeAgo = '';
+        if (duration.asSeconds() < 60) {
+            timeAgo = `${Math.floor(duration.asSeconds())}s`;
+        } else if (duration.asMinutes() < 60) {
+            timeAgo = `${Math.floor(duration.asMinutes())}m`;
+        } else if (duration.asHours() < 24) {
+            timeAgo = `${Math.floor(duration.asHours())}h`;
+        } else if (duration.asDays() < 30) {
+            timeAgo = `${Math.floor(duration.asDays())}d`;
+        } else if (duration.asMonths() < 12) {
+            timeAgo = `${Math.floor(duration.asMonths())}mo`;
+        } else {
+            timeAgo = `${Math.floor(duration.asYears())}y`;
+        }
+
+        return sendSuccessResponse(res, "Comment added...", {
+            ...comment._doc,
+            timeAgo
+        });
+
     } catch (error) {
-        return ThrowError(res, 500, error.message)
+        return ThrowError(res, 500, error.message);
     }
-}
+};
+
+export const replyComment = async (req, res) => {
+    try {
+        const { commentId } = req.params;
+        const userId = req.user._id;
+        const { text } = req.body;
+
+        if (!text) return sendBadRequestResponse(res, "Reply cannot be empty");
+
+        const parentComment = await Comment.findById(commentId);
+        if (!parentComment) return sendBadRequestResponse(res, "Comment not found");
+
+        const reply = await Comment.create({
+            text,
+            user: userId,
+            post: parentComment.post,
+            parent: commentId,
+        });
+
+        parentComment.replies.push(reply._id);
+        await parentComment.save();
+
+        await reply.populate("user", "username profilepic");
+
+        // ✅ Add timeAgo formatting
+        const duration = moment.duration(moment().diff(reply.createdAt));
+        let timeAgo = '';
+        if (duration.asSeconds() < 60) {
+            timeAgo = `${Math.floor(duration.asSeconds())}s`;
+        } else if (duration.asMinutes() < 60) {
+            timeAgo = `${Math.floor(duration.asMinutes())}m`;
+        } else if (duration.asHours() < 24) {
+            timeAgo = `${Math.floor(duration.asHours())}h`;
+        } else if (duration.asDays() < 30) {
+            timeAgo = `${Math.floor(duration.asDays())}d`;
+        } else if (duration.asMonths() < 12) {
+            timeAgo = `${Math.floor(duration.asMonths())}mo`;
+        } else {
+            timeAgo = `${Math.floor(duration.asYears())}y`;
+        }
+
+        return sendSuccessResponse(res, "Reply added", {
+            ...reply._doc,
+            timeAgo
+        });
+
+    } catch (error) {
+        return ThrowError(res, 500, error.message);
+    }
+};
+
+export const deleteReplyComment = async (req, res) => {
+    try {
+        const { replyId } = req.params;
+        const userId = req.user._id;
+
+        if (!mongoose.Types.ObjectId.isValid(replyId)) {
+            return sendBadRequestResponse(res, "Invalid reply ID.");
+        }
+
+        const reply = await Comment.findById(replyId);
+        if (!reply) {
+            return sendBadRequestResponse(res, "Reply not found.");
+        }
+
+        // Only allow the user who made the reply or the admin to delete
+        if (reply.user.toString() !== userId.toString() && !req.user.isAdmin) {
+            return sendBadRequestResponse(res, "You are not authorized to delete this reply.");
+        }
+
+        // Remove reply ID from parent comment's replies array
+        if (reply.parent) {
+            await Comment.findByIdAndUpdate(reply.parent, {
+                $pull: { replies: reply._id },
+            });
+        }
+
+        // Delete the reply comment
+        await Comment.findByIdAndDelete(replyId);
+
+        return sendSuccessResponse(res, "Reply deleted successfully.");
+    } catch (error) {
+        return ThrowError(res, 500, error.message);
+    }
+};
 
 export const getCommentOfPost = async (req, res) => {
     try {
         const postId = req.params.id;
 
         if (!mongoose.Types.ObjectId.isValid(postId)) {
-            return sendBadRequestResponse(res, "Invalid postId")
+            return sendBadRequestResponse(res, "Invalid postId");
         }
 
-        const comments = await Comment.find({ post: postId }).populate(
-            "user",
-            "username profilepic"
-        );
+        const comments = await Comment.find({ post: postId, parent: null })
+            .populate("user", "username profilepic")
+            .populate({
+                path: "replies",
+                populate: {
+                    path: "user",
+                    select: "username profilePic",
+                }
+            })
+            .sort({ createdAt: -1 });
 
         if (!comments || comments.length === 0) {
             return res.status(404).json({
@@ -494,9 +683,63 @@ export const getCommentOfPost = async (req, res) => {
             });
         }
 
-        return sendSuccessResponse(res, "comment fetched successfully", comments)
+        // ✅ Format comments with timeAgo and nested replies
+        const formattedComments = comments.map(comment => {
+            const duration = moment.duration(moment().diff(comment.createdAt));
+            let timeAgo = '';
+            if (duration.asSeconds() < 60) {
+                timeAgo = `${Math.floor(duration.asSeconds())}s`;
+            } else if (duration.asMinutes() < 60) {
+                timeAgo = `${Math.floor(duration.asMinutes())}m`;
+            } else if (duration.asHours() < 24) {
+                timeAgo = `${Math.floor(duration.asHours())}h`;
+            } else if (duration.asDays() < 30) {
+                timeAgo = `${Math.floor(duration.asDays())}d`;
+            } else if (duration.asMonths() < 12) {
+                timeAgo = `${Math.floor(duration.asMonths())}mo`;
+            } else {
+                timeAgo = `${Math.floor(duration.asYears())}y`;
+            }
+
+            const formattedReplies = comment.replies.map(reply => {
+                const replyDuration = moment.duration(moment().diff(reply.createdAt));
+                let replyAgo = '';
+                if (replyDuration.asSeconds() < 60) {
+                    replyAgo = `${Math.floor(replyDuration.asSeconds())}s`;
+                } else if (replyDuration.asMinutes() < 60) {
+                    replyAgo = `${Math.floor(replyDuration.asMinutes())}m`;
+                } else if (replyDuration.asHours() < 24) {
+                    replyAgo = `${Math.floor(replyDuration.asHours())}h`;
+                } else if (replyDuration.asDays() < 30) {
+                    replyAgo = `${Math.floor(replyDuration.asDays())}d`;
+                } else if (replyDuration.asMonths() < 12) {
+                    replyAgo = `${Math.floor(replyDuration.asMonths())}mo`;
+                } else {
+                    replyAgo = `${Math.floor(replyDuration.asYears())}y`;
+                }
+
+                return {
+                    _id: reply._id,
+                    text: reply.text,
+                    user: reply.user,
+                    timeAgo: replyAgo,
+                };
+            });
+
+            return {
+                _id: comment._id,
+                text: comment.text,
+                user: comment.user,
+                timeAgo,
+                replies: formattedReplies
+            };
+        });
+
+        return sendSuccessResponse(res, "Comment fetched successfully", formattedComments);
+
     } catch (error) {
         console.log(error);
+        return ThrowError(res, 500, error.message);
     }
 };
 
@@ -571,6 +814,7 @@ export const deleteComment = async (req, res) => {
 
 
 
+
 export const publishDraft = async (req, res) => {
     try {
         const { postId } = req.params;
@@ -593,7 +837,10 @@ export const publishDraft = async (req, res) => {
         post.status = 'draft';
         await post.save();
 
-        return sendSuccessResponse(res, 'Draft published successfully.', post);
+        return sendSuccessResponse(res, 'Draft published successfully.', {
+            ...post._doc,
+            postDate: moment(post.createdAt).format("D MMM, YYYY"),
+        });
     } catch (error) {
         return sendErrorResponse(res, 500, error.message);
     }
@@ -656,7 +903,12 @@ export const getDrafts = async (req, res) => {
             return sendBadRequestResponse(res, "No any draft post found!!!")
         }
 
-        return sendSuccessResponse(res, 'Drafts fetched successfully.', drafts);
+        const formattedDrafts = drafts.map(draft => ({
+            ...draft._doc,
+            draftDate: moment(draft.createdAt).format("D MMM, YYYY")
+        }));
+
+        return sendSuccessResponse(res, 'Drafts fetched successfully.', formattedDrafts);
     } catch (error) {
         return sendErrorResponse(res, 500, error.message);
     }

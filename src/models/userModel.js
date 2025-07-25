@@ -9,7 +9,7 @@ const userSchema = new mongoose.Schema(
         email: { type: String, unique: true },
         contactNo: { type: Number, unique: true },
         password: { type: String, required: true },
-        profilePic: { type: String, },
+        profilePic: { type: String, default: null },
         bio: { type: String, maxlength: 160 },
         gender: { type: String, enum: ["male", "female"] },
 
@@ -31,7 +31,11 @@ const userSchema = new mongoose.Schema(
         blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
         role: { type: String, enum: ["admin", "user"] },
         isAdmin: { type: Boolean, default: false },
-        lastLogin: { type: Date, default: null }
+        lastLogin: { type: Date, default: null },
+        taggedPosts: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Post'
+        }]
     },
     { timestamps: true }
 );
