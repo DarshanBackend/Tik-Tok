@@ -1,8 +1,7 @@
 import Post from '../models/postModel.js';
 import User from '../models/userModel.js';
-import Audio from '../models/audioModel.js'; // Import the Audio model
 import Comment from '../models/commentModel.js'; // Import the Comment model
-import { sendSuccessResponse, sendErrorResponse, sendBadRequestResponse, sendNotFoundResponse } from '../utils/ResponseUtils.js';
+import { sendSuccessResponse, sendErrorResponse, sendBadRequestResponse, sendNotFoundResponse, sendForbiddenResponse } from '../utils/ResponseUtils.js';
 import fs from 'fs';
 import path from 'path';
 import mongoose from 'mongoose';
@@ -83,18 +82,62 @@ export const addNewPost = async (req, res) => {
 
 export const getAllPost = async (req, res) => {
     try {
-        const posts = await Post.find()
+        const viewerId = req.user._id;
+
+        const blockedByUsers = await User.find({ blockedUsers: viewerId }).distinct("_id");
+
+        const posts = await Post.find({ user: { $nin: blockedByUsers } })
             .sort({ createdAt: -1 })
             .populate({ path: "user", select: "username profilePic" })
             .populate({
                 path: "comments",
                 sort: { createdAt: -1 },
-                populate: { path: "user", select: "username profilePic" }, // Corrected path to 'user'
+                populate: { path: "user", select: "username profilePic" },
             });
 
         return sendSuccessResponse(res, "post fetched successfully...", posts)
     } catch (error) {
         console.log(error);
+    }
+};
+
+export const getPostsByUserId = async (req, res) => {
+    try {
+        const viewerId = req.user._id;
+        const userId = req.params.userId;
+
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            return sendBadRequestResponse(res, "Invalid userId");
+        }
+
+        const targetUser = await User.findById(userId);
+        if (!targetUser) return sendBadRequestResponse(res, "User not found");
+
+        // 🔒 If you are blocked by the target user
+        if (targetUser.blockedUsers.includes(viewerId)) {
+            return sendForbiddenResponse(res, "You are blocked by this user.");
+        }
+
+        // 🔒 If account is private and viewer is not the same user or follower
+        if (targetUser.isPrivate) {
+            const isFollower = targetUser.followers.some(
+                (followerId) => followerId.toString() === viewerId.toString()
+            );
+
+            if (!isFollower && viewerId.toString() !== userId) {
+                return sendForbiddenResponse(res, "This account is private.");
+            }
+        }
+
+        // ✅ Fetch and return published posts
+        const posts = await Post.find({ user: userId, status: "published" })
+            .populate("user", "username profilePic")
+            .sort({ createdAt: -1 });
+
+        return sendSuccessResponse(res, "Posts fetched successfully.", posts);
+    } catch (err) {
+        console.error("Error fetching user posts:", err);
+        return sendErrorResponse(res, 500, err.message);
     }
 };
 
@@ -110,7 +153,7 @@ export const getUserPost = async (req, res) => {
             .populate({
                 path: "comments",
                 sort: { createdAt: -1 },
-                populate: { path: "author", select: "username, profilePic" },
+                populate: { path: "user", select: "username, profilePic" },
             });
 
 
@@ -124,21 +167,53 @@ export const getUserPost = async (req, res) => {
     }
 };
 
+export const getFriendsProfile = async (req, res) => {
+    try {
+        const userId = req.user._id;
+
+        // Get the logged-in user's following list
+        const user = await User.findById(userId);
+        if (!user) return sendBadRequestResponse(res, "User not found.");
+
+        const followingIds = user.followings || [];
+
+        if (followingIds.length === 0) {
+            return sendSuccessResponse(res, "You are not following anyone yet.", []);
+        }
+
+        // Fetch profiles of followed users
+        const profiles = await User.find({
+            _id: { $in: followingIds },
+            blockedUsers: { $ne: userId }  // Exclude users who blocked this user
+        })
+
+        return sendSuccessResponse(res, "Profile from followed users fetched successfully.", profiles);
+    } catch (error) {
+        console.error("Error in getFriendsPosts:", error);
+        return sendErrorResponse(res, 500, error.message);
+    }
+};
+
 export const getFollowingUsersPosts = async (req, res) => {
     try {
-        const loggedInUserId = req.user._id; // Assume middleware sets req.user
+        const loggedInUserId = req.user._id;
 
         const user = await User.findById(loggedInUserId);
         if (!user) {
             return res.status(404).json({ message: "User not found", success: false });
         }
 
-        const followings = user.followings;
+        const blockedByUsers = await User.find({ blockedUsers: loggedInUserId }).distinct("_id");
 
-        // Fetch posts from followed users
-        const posts = await Post.find({ user: { $in: followings } })
+        const posts = await Post.find({
+            user: { $in: user.followings, $nin: blockedByUsers }
+        })
             .populate("user", "username profilePic fullname")
             .sort({ createdAt: -1 });
+
+        if (!posts || posts.length === 0) {
+            return sendNotFoundResponse(res, "No any post found...")
+        }
 
         return res.status(200).json({
             success: true,
@@ -158,12 +233,18 @@ export const getFollowingUsersPosts = async (req, res) => {
 export const getPostsByAudioId = async (req, res) => {
     try {
         const { audioId } = req.params;
+        const viewerId = req.user._id;
 
         if (!mongoose.Types.ObjectId.isValid(audioId)) {
             return sendBadRequestResponse(res, "Invalid audioId")
         }
 
-        const posts = await Post.find({ audioId: audioId })
+        const blockedByUsers = await User.find({ blockedUsers: viewerId }).distinct("_id");
+
+        const posts = await Post.find({
+            audioId: audioId,
+            user: { $nin: blockedByUsers }
+        })
             .populate("user", "username profilePic");
 
         if (!posts || posts.length === 0) {
@@ -289,15 +370,18 @@ export const getTaggedPosts = async (req, res) => {
         const userId = req.user._id;
         const user = await User.findById(userId).populate({
             path: "taggedPosts",
-            populate: { path: "user", select: "username profilePic" }
+            populate: { path: "user", select: "username profilePic blockedUsers" }
         });
+
         if (!user) {
             return sendBadRequestResponse(res, "User not found.");
         }
 
-        // Filter: show only posts not created by the logged-in user
+        // Filter: only posts not by self AND not blocked by post owner
         const taggedByOthers = user.taggedPosts.filter(post => {
-            return post.user._id.toString() !== userId.toString();
+            const postOwner = post.user;
+            const isBlocked = postOwner.blockedUsers?.includes(userId);
+            return postOwner._id.toString() !== userId.toString() && !isBlocked;
         });
 
         if (taggedByOthers.length === 0) {
@@ -329,6 +413,11 @@ export const savePost = async (req, res) => {
             return sendNotFoundResponse(res, "User not found!!!")
         }
 
+        const postOwner = await User.findById(post.user);
+        if (postOwner.blockedUsers.includes(userId)) {
+            return sendForbiddenResponse(res, "You are blocked by this user.");
+        }
+
         if (user.saved.includes(post._id)) {
             await user.updateOne({ $pull: { saved: post._id } })
             await user.save()
@@ -351,50 +440,117 @@ export const savePost = async (req, res) => {
     }
 }
 
-
-
-
-
-export const likePost = async (req, res) => {
+export const getSavedPosts = async (req, res) => {
     try {
-        const likedUser = req.user._id;
-        const postId = req.params.id;
-        const post = await Post.findById(postId);
+        const userId = req.user._id
 
-        if (!post) {
-            return res
-                .status(404)
-                .json({ message: "Post not found", success: false });
-        }
-
-        await Post.updateOne({ _id: postId }, { $addToSet: { likes: likedUser } });
-        await User.updateOne({ _id: likedUser }, { $addToSet: { liked: postId } });
-
-        const user = await User.findById(likedUser).select("username profilePic");
-        const postOwnerId = post.user.toString();
-
-        if (postOwnerId !== likedUser) {
-            const notification = {
-                type: "like",
-                userId: likedUser,
-                userDetails: user,
-                postId,
-                message: `Liked your post`,
-            };
-
-            const postOwnerSocketId = getReceiverSocketId(postOwnerId);
-
-            if (postOwnerSocketId) {
-                io.to(postOwnerSocketId).emit("notification", notification);
+        const user = await User.findById(userId).populate({
+            path: 'saved',
+            match: { status: 'published' },
+            populate: {
+                path: 'user',
+                select: 'username profilePic'
             }
+        })
+
+        if (!user) {
+            return sendNotFoundResponse(res, "User not found...")
         }
 
-        return res.status(200).json({ message: "Post liked", success: true });
+        const savePosts = user.saved.filter(post => post !== null);
+
+        return sendSuccessResponse(res, "Saved posts fetched successfully...", savePosts)
+
     } catch (error) {
-        console.error("Error liking post:", error);
-        return res
-            .status(500)
-            .json({ message: "Something went wrong", success: false });
+        return ThrowError(res, 500, error.message)
+    }
+}
+
+
+
+export const toggleLikePost = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const postId = req.params.id;
+
+        const post = await Post.findById(postId);
+        if (!post) {
+            return res.status(404).json({
+                message: "Post not found",
+                success: false,
+            });
+        }
+
+        const postOwner = await User.findById(post.user);
+
+        if (postOwner.blockedUsers.includes(userId)) {
+            return sendForbiddenResponse(res, "You are blocked by this user");
+        }
+
+        const alreadyLiked = post.likes.includes(userId);
+
+        if (alreadyLiked) {
+            // Dislike (unlike)
+            await Post.updateOne({ _id: postId }, { $pull: { likes: userId } });
+            await User.updateOne({ _id: userId }, { $pull: { liked: postId } });
+
+            const user = await User.findById(userId).select("username profilePic");
+            const postOwnerId = post.user.toString();
+
+            if (postOwnerId !== userId) {
+                const notification = {
+                    type: "dislike",
+                    userId: userId,
+                    userDetails: user,
+                    postId,
+                    message: `Unliked your post`,
+                };
+
+                const postOwnerSocketId = getReceiverSocketId(postOwnerId);
+                if (postOwnerSocketId) {
+                    io.to(postOwnerSocketId).emit("notification", notification);
+                }
+            }
+
+            return res.status(200).json({
+                message: "Post unliked",
+                success: true,
+            });
+        } else {
+            // Like
+            await Post.updateOne({ _id: postId }, { $addToSet: { likes: userId } });
+            await User.updateOne({ _id: userId }, { $addToSet: { liked: postId } });
+
+            const user = await User.findById(userId).select("username profilePic");
+            const postOwnerId = post.user.toString();
+
+            if (postOwnerId !== userId) {
+                const notification = {
+                    type: "like",
+                    userId: userId,
+                    userDetails: user,
+                    postId,
+                    message: `Liked your post`,
+                };
+
+                const postOwnerSocketId = getReceiverSocketId(postOwnerId);
+                if (postOwnerSocketId) {
+                    io.to(postOwnerSocketId).emit("notification", notification);
+                }
+            }
+
+            return res.status(200).json({
+                message: "Post liked",
+                success: true,
+            });
+        }
+    } catch (error) {
+        console.error("Error toggling like:", error);
+        return res.status(500).json({
+            message: "Something went wrong",
+            success: false,
+            error: error.message,
+        });
     }
 };
 
@@ -424,53 +580,6 @@ export const getLikeOfPost = async (req, res) => {
     }
 };
 
-export const dislikePost = async (req, res) => {
-    try {
-        const userId = req.user._id;
-        const postId = req.params.id;
-
-        const post = await Post.findById(postId);
-
-        if (!post) {
-            return res.status(404).json({
-                message: "Post not found",
-                success: false,
-            });
-        }
-
-        await Post.updateOne({ _id: postId }, { $pull: { likes: userId } });
-        await User.updateOne({ _id: userId }, { $pull: { liked: postId } });
-
-
-        // Implement socket.io for real-time notifications (if applicable)
-        const user = await User.findById(userId).select("username profilePic");
-        const postOwnerId = post.user.toString();
-        if (postOwnerId !== userId) {
-            // emit a notification event
-            const notification = {
-                type: "dislike",
-                userId: userId,
-                userDetails: user,
-                postId,
-                message: `Unliked your post`,
-            };
-            const postOwnerSocketId = getReceiverSocketId(postOwnerId);
-            io.to(postOwnerSocketId).emit("notification", notification);
-        }
-        return res.status(200).json({
-            message: "Post unliked",
-            success: true,
-        });
-    } catch (error) {
-        console.error("Error unliking post:", error);
-        return res.status(500).json({
-            message: "Something went wrong",
-            success: false,
-            error: error.message,
-        });
-    }
-};
-
 export const getLikedPostsByUser = async (req, res) => {
     try {
         const userId = req.user._id;
@@ -494,43 +603,76 @@ export const getLikedPostsByUser = async (req, res) => {
 
 
 
+function getTimeAgo(timestamp) {
+    const duration = moment.duration(moment().diff(timestamp));
+    if (duration.asSeconds() < 60) return `${Math.floor(duration.asSeconds())}s`;
+    if (duration.asMinutes() < 60) return `${Math.floor(duration.asMinutes())}m`;
+    if (duration.asHours() < 24) return `${Math.floor(duration.asHours())}h`;
+    if (duration.asDays() < 30) return `${Math.floor(duration.asDays())}d`;
+    if (duration.asMonths() < 12) return `${Math.floor(duration.asMonths())}mo`;
+    return `${Math.floor(duration.asYears())}y`;
+}
+
+async function populateReplies(comment, depth = 0, currentUserId = null) {
+    await comment.populate("user", "username profilePic");
+    await comment.populate("replies");
+
+    const formatted = {
+        _id: comment._id,
+        text: comment.text,
+        user: comment.user,
+        timeAgo: getTimeAgo(comment.createdAt),
+        likeCount: comment.likeComment.length,
+        isLikedByUser: currentUserId
+            ? comment.likeComment.some(u => u.toString() === currentUserId.toString())
+            : false,
+        replies: [],
+    };
+
+    for (let reply of comment.replies) {
+        const replyDoc = await Comment.findById(reply._id);
+        if (replyDoc) {
+            formatted.replies.push(await populateReplies(replyDoc, depth + 1, currentUserId));
+        }
+    }
+
+    return formatted;
+}
+
 export const commentPost = async (req, res) => {
     try {
         const postId = req.params.id;
         const userId = req.user._id;
         const { text } = req.body;
 
-        if (!mongoose.Types.ObjectId.isValid(postId)) {
+        if (!mongoose.Types.ObjectId.isValid(postId))
             return sendBadRequestResponse(res, "Invalid post Id");
-        }
 
         const post = await Post.findById(postId);
-        if (!post) {
+        if (!post)
             return sendBadRequestResponse(res, "No Post found");
-        }
 
         const user = await User.findById(userId);
-        if (!text) {
-            return sendBadRequestResponse(res, "Comment can not be empty...");
+        if (!user)
+            return sendNotFoundResponse(res, "User not found");
+
+        const postOwner = await User.findById(post.user);
+        if (postOwner.blockedUsers.includes(userId)) {
+            return sendForbiddenResponse(res, "You are blocked by this user.");
         }
 
-        const comment = await Comment.create({
-            text,
-            user: userId,
-            post: postId
-        });
+        if (!text)
+            return sendBadRequestResponse(res, "Comment can not be empty...");
 
-        await comment.populate({
-            path: "user",
-            select: "username profilepic",
-        });
+        const comment = await Comment.create({ text, user: userId, post: postId });
+        await comment.populate("user", "username profilePic");
 
         post.comments.push(comment._id);
         await post.save();
 
         await User.updateOne({ _id: userId }, { $addToSet: { comments: postId } });
 
-        if (post.user._id.toString() !== userId.toString()) {
+        if (post.user.toString() !== userId.toString()) {
             const notification = {
                 type: "comment",
                 userId,
@@ -539,32 +681,15 @@ export const commentPost = async (req, res) => {
                 message: `commented on your post.`,
             };
 
-            const receiverSocketId = getReceiverSocketId(post.user._id.toString());
+            const receiverSocketId = getReceiverSocketId(post.user.toString());
             if (receiverSocketId) {
                 io.to(receiverSocketId).emit("notification", notification);
             }
         }
 
-        // ✅ Add timeAgo to the comment response
-        const duration = moment.duration(moment().diff(comment.createdAt));
-        let timeAgo = '';
-        if (duration.asSeconds() < 60) {
-            timeAgo = `${Math.floor(duration.asSeconds())}s`;
-        } else if (duration.asMinutes() < 60) {
-            timeAgo = `${Math.floor(duration.asMinutes())}m`;
-        } else if (duration.asHours() < 24) {
-            timeAgo = `${Math.floor(duration.asHours())}h`;
-        } else if (duration.asDays() < 30) {
-            timeAgo = `${Math.floor(duration.asDays())}d`;
-        } else if (duration.asMonths() < 12) {
-            timeAgo = `${Math.floor(duration.asMonths())}mo`;
-        } else {
-            timeAgo = `${Math.floor(duration.asYears())}y`;
-        }
-
         return sendSuccessResponse(res, "Comment added...", {
             ...comment._doc,
-            timeAgo
+            timeAgo: getTimeAgo(comment.createdAt)
         });
 
     } catch (error) {
@@ -583,38 +708,25 @@ export const replyComment = async (req, res) => {
         const parentComment = await Comment.findById(commentId);
         if (!parentComment) return sendBadRequestResponse(res, "Comment not found");
 
-        const reply = await Comment.create({
-            text,
-            user: userId,
-            post: parentComment.post,
-            parent: commentId,
-        });
+        const post = await Post.findById(parentComment.post);
+        if (!post)
+            return sendNotFoundResponse(res, "Post not found");
+
+        const postOwner = await User.findById(post.user);
+        if (postOwner.blockedUsers.includes(userId)) {
+            return sendForbiddenResponse(res, "You are blocked by this user.");
+        }
+
+        const reply = await Comment.create({ text, user: userId, post: parentComment.post, parent: commentId });
 
         parentComment.replies.push(reply._id);
         await parentComment.save();
 
-        await reply.populate("user", "username profilepic");
-
-        // ✅ Add timeAgo formatting
-        const duration = moment.duration(moment().diff(reply.createdAt));
-        let timeAgo = '';
-        if (duration.asSeconds() < 60) {
-            timeAgo = `${Math.floor(duration.asSeconds())}s`;
-        } else if (duration.asMinutes() < 60) {
-            timeAgo = `${Math.floor(duration.asMinutes())}m`;
-        } else if (duration.asHours() < 24) {
-            timeAgo = `${Math.floor(duration.asHours())}h`;
-        } else if (duration.asDays() < 30) {
-            timeAgo = `${Math.floor(duration.asDays())}d`;
-        } else if (duration.asMonths() < 12) {
-            timeAgo = `${Math.floor(duration.asMonths())}mo`;
-        } else {
-            timeAgo = `${Math.floor(duration.asYears())}y`;
-        }
+        await reply.populate("user", "username profilePic");
 
         return sendSuccessResponse(res, "Reply added", {
             ...reply._doc,
-            timeAgo
+            timeAgo: getTimeAgo(reply.createdAt)
         });
 
     } catch (error) {
@@ -660,86 +772,83 @@ export const deleteReplyComment = async (req, res) => {
 export const getCommentOfPost = async (req, res) => {
     try {
         const postId = req.params.id;
+        if (!mongoose.Types.ObjectId.isValid(postId)) return sendBadRequestResponse(res, "Invalid postId");
 
-        if (!mongoose.Types.ObjectId.isValid(postId)) {
-            return sendBadRequestResponse(res, "Invalid postId");
+        const rootComments = await Comment.find({ post: postId, parent: null }).sort({ createdAt: -1 });
+        if (!rootComments.length) return res.status(404).json({ message: "No comments yet", success: false });
+
+        const result = [];
+        for (let comment of rootComments) {
+            result.push(await populateReplies(comment, 0, req.user?._id));
         }
 
-        const comments = await Comment.find({ post: postId, parent: null })
-            .populate("user", "username profilepic")
-            .populate({
-                path: "replies",
-                populate: {
-                    path: "user",
-                    select: "username profilePic",
-                }
-            })
-            .sort({ createdAt: -1 });
-
-        if (!comments || comments.length === 0) {
-            return res.status(404).json({
-                message: "No comments yet",
-                success: false,
-            });
-        }
-
-        // ✅ Format comments with timeAgo and nested replies
-        const formattedComments = comments.map(comment => {
-            const duration = moment.duration(moment().diff(comment.createdAt));
-            let timeAgo = '';
-            if (duration.asSeconds() < 60) {
-                timeAgo = `${Math.floor(duration.asSeconds())}s`;
-            } else if (duration.asMinutes() < 60) {
-                timeAgo = `${Math.floor(duration.asMinutes())}m`;
-            } else if (duration.asHours() < 24) {
-                timeAgo = `${Math.floor(duration.asHours())}h`;
-            } else if (duration.asDays() < 30) {
-                timeAgo = `${Math.floor(duration.asDays())}d`;
-            } else if (duration.asMonths() < 12) {
-                timeAgo = `${Math.floor(duration.asMonths())}mo`;
-            } else {
-                timeAgo = `${Math.floor(duration.asYears())}y`;
-            }
-
-            const formattedReplies = comment.replies.map(reply => {
-                const replyDuration = moment.duration(moment().diff(reply.createdAt));
-                let replyAgo = '';
-                if (replyDuration.asSeconds() < 60) {
-                    replyAgo = `${Math.floor(replyDuration.asSeconds())}s`;
-                } else if (replyDuration.asMinutes() < 60) {
-                    replyAgo = `${Math.floor(replyDuration.asMinutes())}m`;
-                } else if (replyDuration.asHours() < 24) {
-                    replyAgo = `${Math.floor(replyDuration.asHours())}h`;
-                } else if (replyDuration.asDays() < 30) {
-                    replyAgo = `${Math.floor(replyDuration.asDays())}d`;
-                } else if (replyDuration.asMonths() < 12) {
-                    replyAgo = `${Math.floor(replyDuration.asMonths())}mo`;
-                } else {
-                    replyAgo = `${Math.floor(replyDuration.asYears())}y`;
-                }
-
-                return {
-                    _id: reply._id,
-                    text: reply.text,
-                    user: reply.user,
-                    timeAgo: replyAgo,
-                };
-            });
-
-            return {
-                _id: comment._id,
-                text: comment.text,
-                user: comment.user,
-                timeAgo,
-                replies: formattedReplies
-            };
-        });
-
-        return sendSuccessResponse(res, "Comment fetched successfully", formattedComments);
+        return sendSuccessResponse(res, "Comment fetched successfully", result);
 
     } catch (error) {
         console.log(error);
         return ThrowError(res, 500, error.message);
+    }
+};
+
+export const likeComment = async (req, res) => {
+    try {
+        const likedUser = req.user._id;
+        const commentId = req.params.commentId;
+
+        if (!mongoose.Types.ObjectId.isValid(commentId)) {
+            return res.status(400).json({ message: "Invalid comment ID", success: false });
+        }
+
+        const comment = await Comment.findById(commentId);
+        if (!comment) {
+            return res.status(404).json({ message: "Comment not found", success: false });
+        }
+
+        const alreadyLiked = comment.likeComment.includes(likedUser);
+
+        if (alreadyLiked) {
+            // UNLIKE (pull from both comment and user)
+            await Comment.updateOne({ _id: commentId }, { $pull: { likeComment: likedUser } });
+            await User.updateOne({ _id: likedUser }, { $pull: { likeComment: commentId } });
+
+            return res.status(200).json({
+                type: "unliked",
+                message: "Comment unliked",
+                success: true
+            });
+        } else {
+            // LIKE (add to both comment and user)
+            await Comment.updateOne({ _id: commentId }, { $addToSet: { likeComment: likedUser } });
+            await User.updateOne({ _id: likedUser }, { $addToSet: { likeComment: commentId } });
+
+            // Send Notification
+            const postOwnerId = comment.user.toString();
+            if (postOwnerId !== likedUser.toString()) {
+                const user = await User.findById(likedUser).select("username profilePic");
+
+                const notification = {
+                    type: "like",
+                    userId: likedUser,
+                    userDetails: user,
+                    commentId,
+                    message: `Liked your comment`,
+                };
+
+                const postOwnerSocketId = getReceiverSocketId(postOwnerId);
+                if (postOwnerSocketId) {
+                    io.to(postOwnerSocketId).emit("notification", notification);
+                }
+            }
+
+            return res.status(200).json({
+                type: "liked",
+                message: "Comment liked",
+                success: true
+            });
+        }
+    } catch (error) {
+        console.error("Error liking/unliking comment:", error);
+        return res.status(500).json({ message: "Something went wrong", success: false });
     }
 };
 
@@ -914,3 +1023,54 @@ export const getDrafts = async (req, res) => {
     }
 };
 
+
+export const toggleBlockUser = async (req, res) => {
+    try {
+        const blockerId = req.user._id;
+        const { targetUserId } = req.params;
+
+        if (!targetUserId) {
+            return sendBadRequestResponse(res, "Target user ID is required.");
+        }
+
+        if (!blockerId) {
+            return sendBadRequestResponse(res, "Invalid logged-in user.");
+        }
+
+        if (blockerId.toString() === targetUserId.toString()) {
+            return sendBadRequestResponse(res, "You cannot block yourself.");
+        }
+
+        const blocker = await User.findById(blockerId);
+        if (!blocker) {
+            return sendBadRequestResponse(res, "Blocker user not found.");
+        }
+
+        const isBlocked = blocker.blockedUsers.includes(targetUserId);
+
+        if (isBlocked) {
+            // Unblock user
+            blocker.blockedUsers = blocker.blockedUsers.filter(
+                id => id.toString() !== targetUserId
+            );
+            await blocker.save();
+            return sendSuccessResponse(res, "User unblocked successfully.");
+        } else {
+            // Block user
+            blocker.blockedUsers.push(targetUserId);
+
+            // Optionally: remove follow/follower relationships
+            await User.updateOne({ _id: blockerId }, {
+                $pull: { followers: targetUserId, followings: targetUserId }
+            });
+            await User.updateOne({ _id: targetUserId }, {
+                $pull: { followers: blockerId, followings: blockerId }
+            });
+
+            await blocker.save();
+            return sendSuccessResponse(res, "User blocked successfully.");
+        }
+    } catch (error) {
+        return sendErrorResponse(res, 500, error.message);
+    }
+}

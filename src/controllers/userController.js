@@ -392,6 +392,10 @@ export const followOrUnfollow = async (req, res) => {
         const userId = req.user._id;
         const followingUserId = req.params.id;
 
+        if (!mongoose.Types.ObjectId.isValid(followingUserId)) {
+            return sendBadRequestResponse(res, "Invalid FollowingUserId")
+        }
+
         if (userId.toString() === followingUserId.toString()) {
             return sendBadRequestResponse(res, "You can't follow and unfollow yourself")
         }

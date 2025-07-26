@@ -9,7 +9,7 @@ import { addHelpSupport, deleteHelpSupport, getAllHelpSupport, getHelpSupportByI
 import { addReportCategory, deleteReportCategory, getAllReportCategory, getReportCategoryById, updateReportCategory } from "../controllers/reportCategoryController.js";
 import { addReport, deleteReport, getAllReports, getReportById, getReportByUserId, updateReport } from "../controllers/reportController.js";
 import { addAudio, deleteAudio, getAllAudio, getAudioById, updateAudio } from "../controllers/audioController.js";
-import { addNewPost, commentPost, deleteComment, deletePost, deleteReplyComment, dislikePost, getAllPost, getCommentOfPost, getDrafts, getFollowingUsersPosts, getLikedPostsByUser, getLikeOfPost, getPostsByAudioId, getTaggedPosts, getUserPost, likePost, publishDraft, removeDraft, replyComment, savePost, updateComment, updatePost } from "../controllers/postController.js";
+import { addNewPost, commentPost, deleteComment, deletePost, deleteReplyComment, getAllPost, getCommentOfPost, getDrafts, getFollowingUsersPosts, getFriendsProfile, getLikedPostsByUser, getLikeOfPost, getPostsByAudioId, getPostsByUserId, getSavedPosts, getTaggedPosts, getUserPost, likeComment, publishDraft, removeDraft, replyComment, savePost, toggleBlockUser, toggleLikePost, updateComment, updatePost } from "../controllers/postController.js";
 
 
 const indexRoutes = express.Router()
@@ -29,9 +29,6 @@ indexRoutes.post("/forgotPassword", forgotPassword)
 indexRoutes.post("/VerifyEmail", VerifyOtp)
 indexRoutes.post("/resetPassword", UserAuth, resetPassword)
 indexRoutes.post("/changePassword", UserAuth, changePassword)
-
-
-
 
 
 //TermsOfServices Routes
@@ -80,31 +77,35 @@ indexRoutes.delete("/deleteAudio/:id", UserAuth, isAdmin, deleteAudio)
 //post Routes
 indexRoutes.post("/addNewPost", UserAuth, isUser, upload.fields([{ name: 'post_video', maxCount: 1 }, { name: 'post_image', maxCount: 1 }]), convertJfifToJpeg, addNewPost)
 indexRoutes.get("/getAllPost", UserAuth, getAllPost)
+indexRoutes.get("/getPostsByUserId/:userId", UserAuth, getPostsByUserId)
 indexRoutes.get("/getUserPost", UserAuth, getUserPost)
+indexRoutes.get("/getFriendsProfile", UserAuth, getFriendsProfile)
 indexRoutes.get("/getFollowingUsersPosts", UserAuth, getFollowingUsersPosts)
 indexRoutes.get("/getPostsByAudioId/:audioId", UserAuth, getPostsByAudioId)
 indexRoutes.put("/updatePost/:postId", UserAuth, isUser, upload.fields([{ name: 'post_video', maxCount: 1 }, { name: 'post_image', maxCount: 1 }]), convertJfifToJpeg, updatePost)
 indexRoutes.delete("/deletePost/:postId", UserAuth, deletePost)
 indexRoutes.post("/savePost/:id", UserAuth, savePost)
+indexRoutes.get("/getSavedPosts", UserAuth, getSavedPosts)
 
 indexRoutes.get("/searchUsers", UserAuth, searchUsers)
 indexRoutes.get("/suggestedUsers", UserAuth, isUser, suggestedUsers)
 indexRoutes.post("/followOrUnfollow/:id", UserAuth, isUser, followOrUnfollow)
 indexRoutes.get("/getTaggedPosts", UserAuth, getTaggedPosts)
+indexRoutes.post("/toggleBlockUser/:targetUserId", UserAuth, toggleBlockUser)
 
 indexRoutes.post("/publishDraft/:postId", UserAuth, publishDraft)
 indexRoutes.post("/removeDraft/:postId", UserAuth, removeDraft)
 indexRoutes.get("/getDrafts", UserAuth, getDrafts)
 
-indexRoutes.post("/likePost/:id", UserAuth, likePost)
+indexRoutes.post("/toggleLikePost/:id", UserAuth, toggleLikePost)
 indexRoutes.get("/getLikeOfPost/:id", UserAuth, getLikeOfPost)
-indexRoutes.post("/dislikePost/:id", UserAuth, dislikePost)
 indexRoutes.get("/getLikedPostsByUser", UserAuth, getLikedPostsByUser)
 
 indexRoutes.post("/commentPost/:id", UserAuth, commentPost)
 indexRoutes.post("/replyComment/:commentId", UserAuth, replyComment)
 indexRoutes.delete("/deleteReplyComment/:replyId", UserAuth, deleteReplyComment)
 indexRoutes.get("/getCommentOfPost/:id", UserAuth, getCommentOfPost)
+indexRoutes.post("/likeComment/:commentId", UserAuth, likeComment)
 indexRoutes.put("/updateComment/:commentId", UserAuth, updateComment)
 indexRoutes.delete("/deleteComment/:commentId", UserAuth, deleteComment)
 
