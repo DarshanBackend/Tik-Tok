@@ -346,9 +346,13 @@ export const searchUsers = async (req, res) => {
 
 export const suggestedUsers = async (req, res) => {
     try {
-        const suggestedUsers = await User.find({ _id: { $ne: req.id } }).select(
-            "-password"
-        );
+        const currentUserId = req.user?._id;
+
+        const suggestedUsers = await User.find({
+            _id: { $ne: currentUserId },
+            role: { $ne: 'admin' } // Exclude admins
+        }).select("-password");
+
         if (!suggestedUsers) {
             return sendBadRequestResponse(res, "Currently do not have any users")
         }
@@ -357,7 +361,6 @@ export const suggestedUsers = async (req, res) => {
         console.log(error);
     }
 };
-
 
 export const followOrUnfollow = async (req, res) => {
     try {

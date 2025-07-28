@@ -19,6 +19,7 @@ export const addNewPost = async (req, res) => {
         const videoFile = req.files?.post_video?.[0];
         const userId = req.user._id;
 
+        // Must contain at least one of caption/image/video
         if (!caption && !imageFile && !videoFile) {
             return sendBadRequestResponse(res, 'Post must have a caption, image, or video.');
         }
@@ -26,27 +27,54 @@ export const addNewPost = async (req, res) => {
         const user = await User.findById(userId);
         if (!user) return sendBadRequestResponse(res, 'User not found.');
 
-        // Parse taggedFriends (in case it's a JSON string or stringified array)
+        // Parse taggedFriends from string if needed
+        // Step 1: Clean and validate taggedFriends
         if (typeof taggedFriends === 'string') {
-            taggedFriends = JSON.parse(taggedFriends);
+            try {
+                taggedFriends = JSON.parse(taggedFriends);
+            } catch (err) {
+                taggedFriends = [];
+            }
         }
 
-        // ✅ Filter valid and unique ObjectIds only
         taggedFriends = Array.isArray(taggedFriends)
-            ? [...new Set(taggedFriends.filter(id => mongoose.Types.ObjectId.isValid(id) && id !== userId.toString()))]
+            ? taggedFriends
+                .filter(id => mongoose.Types.ObjectId.isValid(id) && id !== userId.toString())
+                .map(id => id.toString())
             : [];
 
-        // Validate audioId if present
+        // Step 2: Only allow tagging if user is public or the post creator is in their followers
+        if (taggedFriends.length > 0) {
+            const taggedUsers = await User.find({ _id: { $in: taggedFriends } }).select('_id isPrivate followers');
+
+            const filteredTagged = taggedUsers.filter(user => {
+                return Array.isArray(user.followers) && user.followers.some(f => f.toString() === userId.toString());
+            });
+
+            taggedFriends = filteredTagged.map(u => u._id.toString());
+
+            if (taggedFriends.length === 0 && req.body.taggedFriends.length > 0) {
+                if (imageFile?.path && fs.existsSync(imageFile.path)) {
+                    fs.unlinkSync(imageFile.path);
+                }
+                if (videoFile?.path && fs.existsSync(videoFile.path)) {
+                    fs.unlinkSync(videoFile.path);
+                }
+                return sendBadRequestResponse(res, "You cannot tag private users who are not your followers.");
+            }   
+        }
+
+        // ✅ Validate audioId format if provided
         if (audioId && !mongoose.Types.ObjectId.isValid(audioId)) {
-            imageFile && fs.unlinkSync(imageFile.path);
-            videoFile && fs.unlinkSync(videoFile.path);
+            imageFile?.path && fs.existsSync(imageFile.path) && fs.unlinkSync(imageFile.path);
+            videoFile?.path && fs.existsSync(videoFile.path) && fs.unlinkSync(videoFile.path);
             return sendBadRequestResponse(res, 'Invalid Audio ID format.');
         }
 
         let imageUrl = imageFile ? `/public/post_images/${path.basename(imageFile.path)}` : '';
         let videoUrl = videoFile ? `/public/post_videos/${path.basename(videoFile.path)}` : '';
 
-        // Create post 
+        // ✅ Create new post
         const newPost = await Post.create({
             user: userId,
             caption,
@@ -60,10 +88,11 @@ export const addNewPost = async (req, res) => {
             saveToDevice: saveToDevice !== undefined ? saveToDevice === 'true' || saveToDevice === true : false,
         });
 
+        // ✅ Add to user's posts
         user.posts.push(newPost._id);
         await user.save();
 
-        // ✅ Add post to tagged users' taggedPosts
+        // ✅ Add post to tagged users
         if (taggedFriends.length > 0) {
             await User.updateMany(
                 { _id: { $in: taggedFriends } },
@@ -77,8 +106,10 @@ export const addNewPost = async (req, res) => {
         return sendSuccessResponse(res, 'Post created successfully.', newPost);
     } catch (error) {
         console.error("Error in addNewPost:", error);
-        req.files?.post_image?.[0]?.path && fs.unlinkSync(req.files.post_image[0].path);
-        req.files?.post_video?.[0]?.path && fs.unlinkSync(req.files.post_video[0].path);
+
+        req.files?.post_image?.[0]?.path && fs.existsSync(req.files.post_image[0].path) && fs.unlinkSync(req.files.post_image[0].path);
+        req.files?.post_video?.[0]?.path && fs.existsSync(req.files.post_video[0].path) && fs.unlinkSync(req.files.post_video[0].path);
+
         return sendErrorResponse(res, 500, error.message);
     }
 };
@@ -235,7 +266,7 @@ export const getFollowingUsersPosts = async (req, res) => {
     }
 };
 
-export const getPostsByAudioId = async (req, res) => {
+export const getAudioIdByPosts = async (req, res) => {
     try {
         const { audioId } = req.params;
         const viewerId = req.user._id;
@@ -364,6 +395,14 @@ export const deletePost = async (req, res) => {
         await User.findByIdAndUpdate(userId, {
             $pull: { posts: postId }
         });
+
+        // ❌ Remove from tagged users
+        if (post.taggedFriends && post.taggedFriends.length > 0) {
+            await User.updateMany(
+                { _id: { $in: post.taggedFriends } },
+                { $pull: { taggedPosts: post._id } }
+            );
+        }
 
         // Delete all comments related to this post
         await Comment.deleteMany({ post: postId });

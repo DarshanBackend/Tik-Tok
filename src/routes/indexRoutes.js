@@ -9,7 +9,7 @@ import { addHelpSupport, deleteHelpSupport, getAllHelpSupport, getHelpSupportByI
 import { addReportCategory, deleteReportCategory, getAllReportCategory, getReportCategoryById, updateReportCategory } from "../controllers/reportCategoryController.js";
 import { addReport, deleteReport, getAllReports, getReportById, getReportByUserId, updateReport } from "../controllers/reportController.js";
 import { addAudio, deleteAudio, getAllAudio, getAudioById, updateAudio } from "../controllers/audioController.js";
-import { addNewPost, commentPost, deleteComment, deletePost, deleteReplyComment, getAllPost, getCommentOfPost, getDrafts, getFollowingUsersPosts, getFriendsProfile, getLikedPostsByUser, getLikeOfPost, getPostsByAudioId, getPostsByUserId, getSavedPosts, getTaggedPosts, getUserPost, likeComment, publishDraft, removeDraft, replyComment, savePost, toggleBlockUser, toggleLikePost, updateComment, updatePost } from "../controllers/postController.js";
+import { addNewPost, commentPost, deleteComment, deletePost, deleteReplyComment, getAllPost, getAudioIdByPosts, getCommentOfPost, getDrafts, getFollowingUsersPosts, getFriendsProfile, getLikedPostsByUser, getLikeOfPost, getPostsByUserId, getSavedPosts, getTaggedPosts, getUserPost, likeComment, publishDraft, removeDraft, replyComment, savePost, toggleBlockUser, toggleLikePost, updateComment, updatePost } from "../controllers/postController.js";
 
 
 const indexRoutes = express.Router()
@@ -20,7 +20,7 @@ indexRoutes.get("/getAllUsers", UserAuth, isAdmin, getAllUsers)
 indexRoutes.get("/getUserById/:id", UserAuth, isAdmin, getUserById)
 indexRoutes.put("/editUser/:id", UserAuth, isAdmin, upload.single("profilePic"), convertJfifToJpeg, editUser)
 indexRoutes.put("/editProfile/:id", UserAuth, upload.single("profilePic"), convertJfifToJpeg, editProfile)
-indexRoutes.delete("/deleteUser", UserAuth, deleteUser)
+indexRoutes.delete("/deleteUser/:id", UserAuth, deleteUser)
 
 //login Routes
 indexRoutes.post("/userLogin", userLogin)
@@ -81,7 +81,7 @@ indexRoutes.get("/getPostsByUserId/:userId", UserAuth, getPostsByUserId)
 indexRoutes.get("/getUserPost", UserAuth, getUserPost)
 indexRoutes.get("/getFriendsProfile", UserAuth, getFriendsProfile)
 indexRoutes.get("/getFollowingUsersPosts", UserAuth, getFollowingUsersPosts)
-indexRoutes.get("/getPostsByAudioId/:audioId", UserAuth, getPostsByAudioId)
+indexRoutes.get("/getAudioIdByPosts/:audioId", UserAuth, getAudioIdByPosts)
 indexRoutes.put("/updatePost/:postId", UserAuth, isUser, upload.fields([{ name: 'post_video', maxCount: 1 }, { name: 'post_image', maxCount: 1 }]), convertJfifToJpeg, updatePost)
 indexRoutes.delete("/deletePost/:postId", UserAuth, deletePost)
 indexRoutes.post("/savePost/:id", UserAuth, savePost)
