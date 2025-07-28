@@ -36,7 +36,19 @@ const postSchema = new mongoose.Schema({
     taggedFriends: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
-    }]
+    }],
+    allow_comment: {
+        type: Boolean,
+        default: true
+    },
+    isPrivate: {
+        type: Boolean,
+        default: false
+    },
+    saveToDevice: {
+        type: Boolean,
+        default: false
+    }
 }, { timestamps: true });
 
 const Post = mongoose.model('Post', postSchema);

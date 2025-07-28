@@ -12,7 +12,7 @@ import { ThrowError } from '../utils/ErrorUtils.js';
 
 export const addNewPost = async (req, res) => {
     try {
-        const { caption, status, audioId } = req.body;
+        const { caption, status, audioId, allow_comment, isPrivate, saveToDevice } = req.body;
         let taggedFriends = req.body.taggedFriends;
 
         const imageFile = req.files?.post_image?.[0];
@@ -46,7 +46,7 @@ export const addNewPost = async (req, res) => {
         let imageUrl = imageFile ? `/public/post_images/${path.basename(imageFile.path)}` : '';
         let videoUrl = videoFile ? `/public/post_videos/${path.basename(videoFile.path)}` : '';
 
-        // Create post
+        // Create post 
         const newPost = await Post.create({
             user: userId,
             caption,
@@ -54,7 +54,10 @@ export const addNewPost = async (req, res) => {
             video: videoUrl,
             audioId,
             status: status || 'published',
-            taggedFriends
+            taggedFriends,
+            allow_comment: allow_comment !== undefined ? allow_comment === 'true' || allow_comment === true : true,
+            isPrivate: isPrivate !== undefined ? isPrivate === 'true' || isPrivate === true : false,
+            saveToDevice: saveToDevice !== undefined ? saveToDevice === 'true' || saveToDevice === true : false,
         });
 
         user.posts.push(newPost._id);
@@ -82,18 +85,16 @@ export const addNewPost = async (req, res) => {
 
 export const getAllPost = async (req, res) => {
     try {
-        const viewerId = req.user._id;
-
-        const blockedByUsers = await User.find({ blockedUsers: viewerId }).distinct("_id");
-
-        const posts = await Post.find({ user: { $nin: blockedByUsers } })
+        const posts = await Post.find({
+            isPrivate: false,
+            status: "published",
+        })
             .sort({ createdAt: -1 })
-            .populate({ path: "user", select: "username profilePic" })
-            .populate({
-                path: "comments",
-                sort: { createdAt: -1 },
-                populate: { path: "user", select: "username profilePic" },
-            });
+            .populate({ path: "user", select: "username profilePic" });
+
+        if (!posts || posts.length === 0) {
+            return sendNotFoundResponse(res, "No posts found...")
+        }
 
         return sendSuccessResponse(res, "post fetched successfully...", posts)
     } catch (error) {
@@ -129,10 +130,14 @@ export const getPostsByUserId = async (req, res) => {
             }
         }
 
-        // ✅ Fetch and return published posts
-        const posts = await Post.find({ user: userId, status: "published" })
-            .populate("user", "username profilePic")
-            .sort({ createdAt: -1 });
+        const postQuery = {
+            user: userId,
+            status: "published",
+        };
+
+        const posts = await Post.find(postQuery)
+            .sort({ createdAt: -1 })
+            .populate("user", "username profilePic");
 
         return sendSuccessResponse(res, "Posts fetched successfully.", posts);
     } catch (err) {
@@ -206,7 +211,7 @@ export const getFollowingUsersPosts = async (req, res) => {
         const blockedByUsers = await User.find({ blockedUsers: loggedInUserId }).distinct("_id");
 
         const posts = await Post.find({
-            user: { $in: user.followings, $nin: blockedByUsers }
+            user: { $in: user.followings, $nin: blockedByUsers },
         })
             .populate("user", "username profilePic fullname")
             .sort({ createdAt: -1 });
@@ -243,7 +248,7 @@ export const getPostsByAudioId = async (req, res) => {
 
         const posts = await Post.find({
             audioId: audioId,
-            user: { $nin: blockedByUsers }
+            user: { $nin: blockedByUsers },
         })
             .populate("user", "username profilePic");
 
@@ -260,7 +265,7 @@ export const getPostsByAudioId = async (req, res) => {
 export const updatePost = async (req, res) => {
     try {
         const { postId } = req.params;
-        const { caption, status } = req.body;
+        const { caption, status, allow_comment, isPrivate, saveToDevice } = req.body;
         const userId = req.user._id;
 
         const imageFile = req.files?.post_image?.[0];
@@ -278,6 +283,10 @@ export const updatePost = async (req, res) => {
         // Update caption and status
         if (caption) post.caption = caption;
         if (status) post.status = status;
+
+        if (typeof allow_comment !== 'undefined') post.allow_comment = allow_comment;
+        if (typeof isPrivate !== 'undefined') post.isPrivate = isPrivate;
+        if (typeof saveToDevice !== 'undefined') post.saveToDevice = saveToDevice;
 
         // Replace image if new one uploaded
         if (imageFile) {
@@ -649,8 +658,9 @@ export const commentPost = async (req, res) => {
             return sendBadRequestResponse(res, "Invalid post Id");
 
         const post = await Post.findById(postId);
-        if (!post)
-            return sendBadRequestResponse(res, "No Post found");
+        if (!post.allow_comment) {
+            return sendForbiddenResponse(res, "Commenting is disabled for this post.");
+        }
 
         const user = await User.findById(userId);
         if (!user)
@@ -711,6 +721,11 @@ export const replyComment = async (req, res) => {
         const post = await Post.findById(parentComment.post);
         if (!post)
             return sendNotFoundResponse(res, "Post not found");
+
+        // ✅ Check if commenting is allowed
+        if (post.allow_comment === false) {
+            return sendForbiddenResponse(res, "Commenting is disabled for this post.");
+        }
 
         const postOwner = await User.findById(post.user);
         if (postOwner.blockedUsers.includes(userId)) {

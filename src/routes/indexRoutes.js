@@ -20,7 +20,7 @@ indexRoutes.get("/getAllUsers", UserAuth, isAdmin, getAllUsers)
 indexRoutes.get("/getUserById/:id", UserAuth, isAdmin, getUserById)
 indexRoutes.put("/editUser/:id", UserAuth, isAdmin, upload.single("profilePic"), convertJfifToJpeg, editUser)
 indexRoutes.put("/editProfile/:id", UserAuth, upload.single("profilePic"), convertJfifToJpeg, editProfile)
-indexRoutes.delete("/deleteUser/:id", UserAuth, deleteUser)
+indexRoutes.delete("/deleteUser", UserAuth, deleteUser)
 
 //login Routes
 indexRoutes.post("/userLogin", userLogin)

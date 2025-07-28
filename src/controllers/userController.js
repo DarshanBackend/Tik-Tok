@@ -6,6 +6,8 @@ import fs from 'fs';
 import path from "path";
 import { sendSuccessResponse, sendErrorResponse, sendBadRequestResponse, sendForbiddenResponse, sendCreatedResponse, sendUnauthorizedResponse, sendNotFoundResponse } from '../utils/ResponseUtils.js';
 import { getReceiverSocketId, io } from "../socket/socket.js";
+import Post from "../models/postModel.js"
+import Comment from "../models/commentModel.js"
 
 
 export const register = async (req, res) => {
@@ -128,35 +130,6 @@ export const editProfile = async (req, res) => {
         return sendErrorResponse(res, 500, error.message);
     }
 };
-
-// export const registerUser = async (req, res) => {
-//     try {
-//         const { name, gender, email, contactNo, password } = req.body;
-
-//         const existing = await Register.findOne({ email });
-//         if (existing) {
-//             existing.otp = generateOTP()
-//             existing.save()
-//             phoneNoOtp(existing.contactNo, existing.otp)
-//             return sendBadRequestResponse(res, "contactNo already registered");
-//         }
-
-//         const otp = generateOTP();
-//         const newUser = await Register.create({
-//             contactNo,
-//             role: 'user',
-//             isAdmin: false,
-//             otp,
-//             otpExpiry: new Date(Date.now() + 5 * 60 * 1000)
-//         });
-//         phoneNoOtp(contactNo, otp)
-
-//         return sendCreatedResponse(res, "User registered. OTP sent.", { data: newUser });
-//     } catch (error) {
-//         return ThrowError(res, 500, error.message);
-//     }
-// };
-
 
 export const getAllUsers = async (req, res) => {
     try {
@@ -284,7 +257,7 @@ export const editUser = async (req, res) => {
 
 export const deleteUser = async (req, res) => {
     try {
-        const userId = req.params.id;
+        const userId = req.user?._id;
 
         if (!userId) {
             return sendBadRequestResponse(res, "User ID is required");
@@ -296,10 +269,10 @@ export const deleteUser = async (req, res) => {
         }
 
         // 1. Delete user's posts
-        await Post.deleteMany({ author: userId });
+        await Post.deleteMany({ user: userId });
 
         // 2. Delete comments by user
-        await Comment.deleteMany({ author: userId });
+        await Comment.deleteMany({ user: userId });
 
         // 3. Remove likes and saved references from all posts
         await Post.updateMany(
@@ -310,15 +283,14 @@ export const deleteUser = async (req, res) => {
             { saved: userId },
             { $pull: { saved: userId } }
         );
-
-        // 4. Delete messages sent or received
-        await Message.deleteMany({ $or: [{ senderId: userId }, { receiverId: userId }] });
-
-        // 5. Delete conversations where user is a participant
-        await Conversation.deleteMany({ participants: userId });
-
-        // 6. Delete reports made by the user
-        await Report.deleteMany({ user: userId });
+        await Post.updateMany(
+            { taggedFriends: userId },
+            { $pull: { taggedFriends: userId } }
+        );
+        await Comment.updateMany(
+            { likeComment: userId },
+            { $pull: { likeComment: userId } }
+        )
 
         // 7. Remove user from other users' followers and followings
         await User.updateMany(
