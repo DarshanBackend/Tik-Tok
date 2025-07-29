@@ -43,7 +43,12 @@ export const register = async (req, res) => {
             role: role || 'user',
         });
 
-        return sendCreatedResponse(res, "Account created successfully", data);
+        const token = await data.getJWT();
+        if (!token) {
+            return sendErrorResponse(res, 500, "Failed to generate token");
+        }
+
+        return sendCreatedResponse(res, "Account created successfully", { data, token: token });
     } catch (error) {
         return sendErrorResponse(res, 500, error.message);
     }
