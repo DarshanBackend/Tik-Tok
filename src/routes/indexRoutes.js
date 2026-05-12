@@ -27,28 +27,28 @@ indexRoutes.post("/userLogin", userLogin)
 indexRoutes.post("/VerifyPhone", VerifyPhone)
 indexRoutes.post("/forgotPassword", forgotPassword)
 indexRoutes.post("/VerifyEmail", VerifyOtp)
-indexRoutes.post("/resetPassword", UserAuth, resetPassword)
+indexRoutes.post("/resetPassword", resetPassword)
 indexRoutes.post("/changePassword", UserAuth, changePassword)
 
 
 //TermsOfServices Routes
 indexRoutes.post("/addTermsOfServices", UserAuth, isAdmin, addTermsOfServices)
-indexRoutes.get("/getAllTermsOfServices", UserAuth, isAdmin, getAllTermsOfServices)
-indexRoutes.get("/getTermsOfServicesById/:id", UserAuth, isAdmin, getTermsOfServicesById)
+indexRoutes.get("/getAllTermsOfServices", UserAuth, getAllTermsOfServices)
+indexRoutes.get("/getTermsOfServicesById/:id", UserAuth, getTermsOfServicesById)
 indexRoutes.put("/updateTermsOfServices/:id", UserAuth, isAdmin, updateTermsOfServices)
 indexRoutes.delete("/deleteTermsOfServices/:id", UserAuth, isAdmin, deleteTermsOfServices)
 
 //PrivacyPolicy Routes
 indexRoutes.post("/addPrivacyPolicy", UserAuth, isAdmin, addPrivacyPolicy)
-indexRoutes.get("/getAllPrivacyPolicy", UserAuth, isAdmin, getAllPrivacyPolicy)
-indexRoutes.get("/getPrivacyPolicyById/:id", UserAuth, isAdmin, getPrivacyPolicyById)
+indexRoutes.get("/getAllPrivacyPolicy", UserAuth, getAllPrivacyPolicy)
+indexRoutes.get("/getPrivacyPolicyById/:id", UserAuth, getPrivacyPolicyById)
 indexRoutes.put("/updatePrivacyPolicy/:id", UserAuth, isAdmin, updatePrivacyPolicy)
 indexRoutes.delete("/deletePrivacyPolicy/:id", UserAuth, isAdmin, deletePrivacyPolicy)
 
 //HelpSupport Routes
 indexRoutes.post("/addHelpSupport", UserAuth, isAdmin, addHelpSupport)
-indexRoutes.get("/getAllHelpSupport", UserAuth, isAdmin, getAllHelpSupport)
-indexRoutes.get("/getHelpSupportById/:id", UserAuth, isAdmin, getHelpSupportById)
+indexRoutes.get("/getAllHelpSupport", UserAuth, getAllHelpSupport)
+indexRoutes.get("/getHelpSupportById/:id", UserAuth, getHelpSupportById)
 indexRoutes.put("/updateHelpSupport/:id", UserAuth, isAdmin, updateHelpSupport)
 indexRoutes.delete("/deleteHelpSupport/:id", UserAuth, isAdmin, deleteHelpSupport)
 

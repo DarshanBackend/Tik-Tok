@@ -64,7 +64,7 @@ io.on("connection", (socket) => {
         // console.log(`❌ User Disconnected: userId = ${userId}, socketId = ${socket.id}`);
         io.emit("getOnlineUsers", Object.keys(userSocketMap));
       }
-    }, 3000); // Add a 3-second delay before removing the user
+    }, 8000); // Add a 3-second delay before removing the user
   });
 });
 

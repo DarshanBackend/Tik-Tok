@@ -9,7 +9,7 @@ const app = express();
 // Middleware
 app.use(express.json());
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: process.env.CLIENT_URL || 'http://localhost:8000',
   credentials: true
 }));
 app.use('/public', express.static('public'));
@@ -20,7 +20,7 @@ app.use("/api", indexRouter)
 
 
 // Connect to database
-connectDB();  
+connectDB();
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
