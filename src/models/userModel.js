@@ -9,6 +9,7 @@ const userSchema = new mongoose.Schema(
         username: { type: String, unique: true, sparse: true },
         email: { type: String, unique: true, sparse: true },
         contactNo: { type: Number, unique: true, sparse: true },
+        uid: { type: String, unique: true, sparse: true },
 
         profilePic: { type: String, default: null },
         bio: { type: String, maxlength: 160 },

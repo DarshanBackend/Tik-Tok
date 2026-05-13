@@ -339,6 +339,68 @@ export const changePassword = async (req, res) => {
     }
 };
 
+export const googleAuth = async (req, res) => {
+    try {
+        const { email, name, profilePic, uid } = req.body;
+
+        if (!email && !uid) {
+            return sendBadRequestResponse(res, "Email or UID is required for Google authentication");
+        }
+
+        let user = null;
+
+        // Try finding by UID first if provided
+        if (uid) {
+            user = await User.findOne({ uid });
+        }
+
+        // If not found by UID, try finding by Email
+        if (!user && email) {
+            user = await User.findOne({ email: email.toLowerCase() });
+            // If found by email but no UID, link the UID
+            if (user && uid && !user.uid) {
+                user.uid = uid;
+                await user.save();
+            }
+        }
+
+        if (!user) {
+            // Create new user if they don't exist
+            user = await User.create({
+                email: email ? email.toLowerCase() : undefined,
+                name: name,
+                profilePic: profilePic,
+                uid: uid,
+                role: 'user',
+            });
+        } else {
+            // Update lastLogin
+            user.lastLogin = new Date();
+            // Optionally update name/profilePic if they were missing
+            if (name && !user.name) user.name = name;
+            if (profilePic && !user.profilePic) user.profilePic = profilePic;
+            if (uid && !user.uid) user.uid = uid;
+            await user.save();
+        }
+
+        const token = await user.getJWT();
+        if (!token) {
+            return sendErrorResponse(res, 500, "Failed to generate token");
+        }
+
+        return sendSuccessResponse(res, "Google authentication successful", {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            profilePic: user.profilePic,
+            uid: user.uid,
+            token: token
+        });
+    } catch (error) {
+        return sendErrorResponse(res, 500, error.message);
+    }
+};
+
 //logoutUser
 // export const logoutUser = async (req, res) => {
 //     try {
