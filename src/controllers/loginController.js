@@ -98,10 +98,21 @@ export const userLogin = async (req, res) => {
             user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
             await user.save();
 
+            let sentTo = ["contact number"];
+            
             // Send OTP to contactNo
             await phoneNoOtp(contactNo, otp);
 
-            return sendSuccessResponse(res, "OTP sent to contact number", { contactNo });
+            // Send to Email if user has one
+            if (user.email) {
+                await sendOtpEmail(user.email, otp);
+                sentTo.push("email");
+            }
+
+            return sendSuccessResponse(res, `OTP sent to ${sentTo.join(" and ")}`, { 
+                contactNo, 
+                email: user.email 
+            });
         }
 
         // 2. Email & Password Login
@@ -121,24 +132,30 @@ export const userLogin = async (req, res) => {
         }
 
         // Always update lastLogin on successful login
-        user.lastLogin = new Date();
+        // Now instead of direct login, we send an OTP
+        const otp = generateOTP();
+        user.otp = otp;
+        user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
         await user.save();
 
-        // Generate JWT token
-        const token = await user.getJWT();
-        if (!token) {
-            return sendErrorResponse(res, 500, "Failed to generate token");
+        let sentTo = [];
+
+        // Send to Email
+        if (user.email) {
+            await sendOtpEmail(user.email, otp);
+            sentTo.push("email");
         }
 
-        // Return user data with role and isAdmin status
-        return sendSuccessResponse(res, "Login successful", {
+        // Send to Contact Number if exists
+        if (user.contactNo) {
+            await phoneNoOtp(user.contactNo, otp);
+            sentTo.push("contact number");
+        }
+
+        return sendSuccessResponse(res, `OTP sent to ${sentTo.join(" and ")}. Please verify to complete login.`, {
             id: user._id,
-            name: user.name,
             email: user.email,
-            role: user.role || 'user',
-            isAdmin: user.role === 'admin',
-            lastLogin: user.lastLogin,
-            token: token
+            contactNo: user.contactNo
         });
     } catch (error) {
         return ThrowError(res, 500, error.message);
