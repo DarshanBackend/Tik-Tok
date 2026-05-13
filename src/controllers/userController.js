@@ -13,13 +13,19 @@ import { deleteFromS3 } from "../utils/uploadS3.js";
 
 export const register = async (req, res) => {
     try {
-        const { contactNo, email, password, name, role } = req.body;
+        const { contactNo, mobileNo, email, password, name, role, profilePic } = req.body;
+
+        const finalContactNo = contactNo || mobileNo;
+
+        if (!finalContactNo && !email) {
+            return sendBadRequestResponse(res, "Mobile number or Email is required.");
+        }
 
         // Check for contactNo uniqueness if provided
-        if (contactNo) {
-            const userByContact = await User.findOne({ contactNo });
+        if (finalContactNo) {
+            const userByContact = await User.findOne({ contactNo: finalContactNo });
             if (userByContact) {
-                return sendBadRequestResponse(res, "ContactNo already taken");
+                return sendBadRequestResponse(res, "Mobile number already taken");
             }
         }
 
@@ -31,16 +37,17 @@ export const register = async (req, res) => {
             }
         }
 
-        if (!password) {
-            return sendBadRequestResponse(res, "Password is required");
+        let hashedPass = null;
+        if (password) {
+            hashedPass = await bcrypt.hash(password, 10);
         }
-        const hashedPass = await bcrypt.hash(password, 10);
 
         const data = await User.create({
             name,
             email,
-            contactNo,
+            contactNo: finalContactNo,
             password: hashedPass,
+            profilePic: profilePic || null,
             role: role || 'user',
         });
 
@@ -310,7 +317,6 @@ export const searchUsers = async (req, res) => {
         if (!query) {
             return sendBadRequestResponse(res, "Query is required")
         }
-
 
         const users = await User.find({
             _id: { $ne: req.user._id },

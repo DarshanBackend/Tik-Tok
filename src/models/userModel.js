@@ -5,10 +5,11 @@ import bcrypt from "bcryptjs";
 const userSchema = new mongoose.Schema(
     {
         name: { type: String, },
-        username: { type: String, unique: true },
-        email: { type: String, unique: true },
-        contactNo: { type: Number, unique: true },
-        password: { type: String, required: true },
+        password: { type: String },
+        username: { type: String, unique: true, sparse: true },
+        email: { type: String, unique: true, sparse: true },
+        contactNo: { type: Number, unique: true, sparse: true },
+
         profilePic: { type: String, default: null },
         bio: { type: String, maxlength: 160 },
         gender: { type: String, enum: ["male", "female"] },
