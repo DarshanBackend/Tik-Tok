@@ -7,9 +7,9 @@ import twilio from 'twilio';
 
 
 
-const generateOTP = () => Math.floor(1000 + Math.random() * 9000).toString();
+export const generateOTP = () => Math.floor(1000 + Math.random() * 9000).toString();
 
-const phoneNoOtp = async (contactNo, otp) => {
+export const phoneNoOtp = async (contactNo, otp) => {
     let formattedContactNo = contactNo.toString().replace(/\D/g, '');
     if (formattedContactNo.length === 10) {
         formattedContactNo = `+91${formattedContactNo}`;

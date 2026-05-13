@@ -1,4 +1,5 @@
 import User from "../models/userModel.js";
+import { generateOTP, phoneNoOtp } from "./loginController.js";
 import { ThrowError } from "../utils/ErrorUtils.js"
 import mongoose from "mongoose"
 import bcrypt from "bcryptjs";
@@ -42,6 +43,15 @@ export const register = async (req, res) => {
             hashedPass = await bcrypt.hash(password, 10);
         }
 
+        let otp = null;
+        let otpExpiry = null;
+
+        if (finalContactNo) {
+            otp = generateOTP();
+            otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
+            await phoneNoOtp(finalContactNo, otp);
+        }
+
         const data = await User.create({
             name,
             email,
@@ -49,7 +59,13 @@ export const register = async (req, res) => {
             password: hashedPass,
             profilePic: profilePic || null,
             role: role || 'user',
+            otp,
+            otpExpiry
         });
+
+        if (finalContactNo) {
+            return sendCreatedResponse(res, "OTP sent to mobile number. Please verify to complete registration.", { contactNo: finalContactNo });
+        }
 
         const token = await data.getJWT();
         if (!token) {
