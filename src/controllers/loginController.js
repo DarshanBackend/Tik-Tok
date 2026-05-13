@@ -37,25 +37,45 @@ export const phoneNoOtp = async (contactNo, otp) => {
 }
 
 // Utility to send OTP to email
-async function sendOtpEmail(email, otp) {
+export const sendOtpEmail = async (email, otp) => {
 
     const transporter = nodemailer.createTransport({
-        service: "gmail",
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false,
         auth: {
             user: process.env.MY_GMAIL,
-            pass: process.env.MY_PASSWORD,
+            pass: process.env.MY_PASSWORD ? process.env.MY_PASSWORD.trim() : "",
         },
-        tls: { rejectUnauthorized: false },
+    });
+
+    console.log("SMTP Debug Check:", {
+        user: process.env.MY_GMAIL,
+        hasPassword: !!process.env.MY_PASSWORD,
+        passwordLength: process.env.MY_PASSWORD ? process.env.MY_PASSWORD.length : 0
     });
 
     const mailOptions = {
-        from: process.env.MY_GMAIL,
+        from: `"TikTok Verification" <${process.env.MY_GMAIL}>`,
         to: email,
-        subject: "Password Reset OTP",
-        text: `Your OTP for password reset is: ${otp}. It is valid for 10 minutes.`,
+        subject: "Verification OTP",
+        text: `Your OTP for verification is: ${otp}. It is valid for 10 minutes.`,
     };
 
-    await transporter.sendMail(mailOptions);
+    try {
+        console.log(`Attempting to send OTP to ${email}...`);
+        await transporter.sendMail(mailOptions);
+        console.log(`OTP sent successfully to ${email}`);
+    } catch (error) {
+        console.error("Nodemailer Error Details:", {
+            code: error.code,
+            command: error.command,
+            response: error.response,
+            responseCode: error.responseCode,
+            stack: error.stack
+        });
+        throw new Error("Failed to send verification email. Please check SMTP credentials.");
+    }
 }
 
 export const userLogin = async (req, res) => {
@@ -128,19 +148,21 @@ export const userLogin = async (req, res) => {
 // Verify contactno Otp
 export const VerifyPhone = async (req, res) => {
     try {
-        const { contactNo, otp } = req.body;
+        const { contactNo, email, otp } = req.body;
 
-        if (!contactNo || !otp) {
-            return sendBadRequestResponse(res, "Please provide contactNo and OTP.");
+        if (!otp || (!contactNo && !email)) {
+            return sendBadRequestResponse(res, "Please provide (contactNo or email) and OTP.");
         }
 
         const user = await User.findOne({
             $or: [
-                { contactNo: contactNo },
-                { contactNo: '+91' + contactNo },
-                { contactNo: Number(contactNo) }
-            ]
+                contactNo ? { contactNo: contactNo } : null,
+                contactNo ? { contactNo: '+91' + contactNo } : null,
+                contactNo ? { contactNo: Number(contactNo) } : null,
+                email ? { email: email.toLowerCase() } : null
+            ].filter(Boolean)
         });
+
         if (!user) {
             return sendErrorResponse(res, 404, "User not found.");
         }
@@ -162,9 +184,13 @@ export const VerifyPhone = async (req, res) => {
         if (!token) {
             return sendErrorResponse(res, 500, "Failed to generate token");
         }
-        return sendSuccessResponse(res, "OTP verified successfully.", { token: token });
-
-
+        return sendSuccessResponse(res, "OTP verified successfully.", {
+            token: token,
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            contactNo: user.contactNo
+        });
 
     } catch (error) {
         return ThrowError(res, 500, error.message);
@@ -175,45 +201,42 @@ export const forgotPassword = async (req, res) => {
     try {
         const { email, contactNo } = req.body;
 
-        // 1. Forgot by Contact Number
-        if (contactNo && !email) {
-            const otp = generateOTP()
+        if (!email && !contactNo) {
+            return sendBadRequestResponse(res, "Please provide either email or contact number");
+        }
 
-            const user = await User.findOne({ contactNo: contactNo });
-            if (!user) {
-                return sendErrorResponse(res, 404, "User not found");
-            }
+        // Find user by email or contactNo
+        const user = await User.findOne({
+            $or: [
+                contactNo ? { contactNo: contactNo } : null,
+                email ? { email: email.toLowerCase() } : null
+            ].filter(Boolean)
+        });
 
-            // Send OTP to contactNo
+        if (!user) {
+            return sendErrorResponse(res, 404, "User not found");
+        }
+
+        const otp = generateOTP();
+        user.otp = otp;
+        user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+        await user.save();
+
+        let sentTo = [];
+
+        // Send to Phone if provided
+        if (contactNo) {
             await phoneNoOtp(contactNo, otp);
-            user.otp = otp;
-            user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
-            await user.save();
-
-            return sendSuccessResponse(res, "OTP sent to contact number", { contactNo });
+            sentTo.push("mobile number");
         }
 
-        // 2. Forgot by Email
-        if (email && !contactNo) {
-            const otp = generateOTP()
-            // Find user by email
-            const user = await User.findOne({ email: email.toLowerCase() });
-            if (!user) {
-                return sendErrorResponse(res, 404, "User not found");
-            }
-
+        // Send to Email if provided
+        if (email) {
             await sendOtpEmail(email, otp);
-            // Set OTP and expiry (e.g., 5 minutes from now)
-            user.otp = otp;
-            user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
-            await user.save();
-            // Send OTP to email
-
-            return sendSuccessResponse(res, "OTP sent to email", { email });
+            sentTo.push("email");
         }
 
-        // If neither provided
-        return sendBadRequestResponse(res, "Please provide either email or contact number");
+        return sendSuccessResponse(res, `OTP sent to ${sentTo.join(" and ")}`, { email, contactNo });
 
     } catch (error) {
         return sendErrorResponse(res, 500, error.message);
@@ -225,47 +248,55 @@ export const VerifyOtp = async (req, res) => {
     try {
         const { contactNo, email, otp } = req.body;
 
-        if (contactNo && otp) {
-            const user = await User.findOne({ contactNo });
-            if (!user) {
-                return sendErrorResponse(res, 404, "User not found.");
-            }
-            if (!user.otp || !user.otpExpiry) {
-                return sendBadRequestResponse(res, "No OTP found. Please request a new OTP.");
-            }
-            if (user.otp !== otp) {
-                return sendBadRequestResponse(res, "Invalid OTP.");
-            }
-            if (user.otpExpiry < Date.now()) {
-                return sendBadRequestResponse(res, "OTP has expired. Please request a new OTP.");
-            }
-            user.lastLogin = new Date();
-            user.otp = undefined;
-            user.otpExpiry = undefined;
-            await user.save();
-            return sendSuccessResponse(res, "OTP verified successfully.");
-        } else if (email && otp) {
-            const user = await User.findOne({ email: email.toLowerCase() });
-            if (!user) {
-                return sendErrorResponse(res, 404, "User not found.");
-            }
-            if (!user.otp || !user.otpExpiry) {
-                return sendBadRequestResponse(res, "No OTP found. Please request a new OTP.");
-            }
-            if (user.otp !== otp) {
-                return sendBadRequestResponse(res, "Invalid OTP.");
-            }
-            if (user.otpExpiry < Date.now()) {
-                return sendBadRequestResponse(res, "OTP has expired. Please request a new OTP.");
-            }
-            user.lastLogin = new Date();
-            user.otp = undefined;
-            user.otpExpiry = undefined;
-            await user.save();
-            return sendSuccessResponse(res, "OTP verified successfully.");
-        } else {
-            return sendBadRequestResponse(res, "Please provide contactNo or email and OTP.");
+        if (!otp) {
+            return sendBadRequestResponse(res, "OTP is required.");
         }
+
+        if (!contactNo && !email) {
+            return sendBadRequestResponse(res, "Please provide contactNo or email.");
+        }
+
+        // Search user by email or contactNo
+        const user = await User.findOne({
+            $or: [
+                contactNo ? { contactNo: contactNo } : null,
+                email ? { email: email.toLowerCase() } : null
+            ].filter(Boolean)
+        });
+
+        if (!user) {
+            return sendErrorResponse(res, 404, "User not found.");
+        }
+
+        if (!user.otp || !user.otpExpiry) {
+            return sendBadRequestResponse(res, "No OTP found. Please request a new OTP.");
+        }
+
+        if (user.otp !== otp) {
+            return sendBadRequestResponse(res, "Invalid OTP.");
+        }
+
+        if (user.otpExpiry < Date.now()) {
+            return sendBadRequestResponse(res, "OTP has expired. Please request a new OTP.");
+        }
+
+        user.lastLogin = new Date();
+        user.otp = undefined;
+        user.otpExpiry = undefined;
+        await user.save();
+
+        const token = await user.getJWT();
+        if (!token) {
+            return sendErrorResponse(res, 500, "Failed to generate token");
+        }
+
+        return sendSuccessResponse(res, "OTP verified successfully.", {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            contactNo: user.contactNo,
+            token: token
+        });
     } catch (error) {
         return ThrowError(res, 500, error.message);
     }

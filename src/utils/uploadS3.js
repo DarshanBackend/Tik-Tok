@@ -1,9 +1,7 @@
 import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import sharp from "sharp";
 import path from "path";
-import dotenv from "dotenv";
 
-dotenv.config();
 
 const s3Client = new S3Client({
     region: process.env.S3_REGION,

@@ -1,5 +1,5 @@
 import User from "../models/userModel.js";
-import { generateOTP, phoneNoOtp } from "./loginController.js";
+import { generateOTP, phoneNoOtp, sendOtpEmail } from "./loginController.js";
 import { ThrowError } from "../utils/ErrorUtils.js"
 import mongoose from "mongoose"
 import bcrypt from "bcryptjs";
@@ -46,10 +46,15 @@ export const register = async (req, res) => {
         let otp = null;
         let otpExpiry = null;
 
-        if (finalContactNo) {
+        if (finalContactNo || email) {
             otp = generateOTP();
-            otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
-            await phoneNoOtp(finalContactNo, otp);
+            otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes for email consistency
+            if (finalContactNo) {
+                await phoneNoOtp(finalContactNo, otp);
+            }
+            if (email) {
+                await sendOtpEmail(email, otp);
+            }
         }
 
         const data = await User.create({
@@ -63,8 +68,17 @@ export const register = async (req, res) => {
             otpExpiry
         });
 
-        if (finalContactNo) {
-            return sendCreatedResponse(res, "OTP sent to mobile number. Please verify to complete registration.", { contactNo: finalContactNo });
+        if (finalContactNo || email) {
+            const message = finalContactNo && email 
+                ? "OTP sent to mobile number and email. Please verify to complete registration."
+                : finalContactNo 
+                    ? "OTP sent to mobile number. Please verify to complete registration."
+                    : "OTP sent to email. Please verify to complete registration.";
+            
+            return sendCreatedResponse(res, message, { 
+                contactNo: finalContactNo, 
+                email: email 
+            });
         }
 
         const token = await data.getJWT();
