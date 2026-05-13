@@ -3,6 +3,7 @@ import Audio from "../models/audioModel.js";
 import AudioCategory from "../models/audioCategoryModel.js";
 import { ThrowError } from "../utils/ErrorUtils.js";
 import { sendBadRequestResponse, sendSuccessResponse } from "../utils/ResponseUtils.js";
+import { deleteFromS3 } from "../utils/uploadS3.js";
 import fs from "fs"
 import path from 'path';
 
@@ -20,41 +21,25 @@ export const addAudio = async (req, res) => {
         const imageFile = req.files.audio_image[0];
 
         if (!audioCategoryId || !audio_name || !artist_name) {
-            try {
-                fs.unlinkSync(audioFile.path);
-                fs.unlinkSync(imageFile.path);
-            } catch (err) { console.error("Failed to delete uploaded files:", err); }
             return sendBadRequestResponse(res, "audioCategoryId, audio_name and artist_name are required!");
         }
 
         if (!mongoose.Types.ObjectId.isValid(audioCategoryId)) {
-            try {
-                fs.unlinkSync(audioFile.path);
-                fs.unlinkSync(imageFile.path);
-            } catch (err) { console.error("Failed to delete uploaded files:", err); }
             return sendBadRequestResponse(res, "Invalid AudioCategoryId Id");
         }
 
         const category = await AudioCategory.findById(audioCategoryId);
         if (!category) {
-            try {
-                fs.unlinkSync(audioFile.path);
-                fs.unlinkSync(imageFile.path);
-            } catch (err) { console.error("Failed to delete uploaded files:", err); }
             return sendBadRequestResponse(res, 'Audio category not found.');
         }
 
         const existingAudio = await Audio.findOne({ audioCategoryId, audio_name });
         if (existingAudio) {
-            try {
-                fs.unlinkSync(audioFile.path);
-                fs.unlinkSync(imageFile.path);
-            } catch (err) { console.error("Failed to delete uploaded files:", err); }
             return sendBadRequestResponse(res, "This Audio already exists in the selected Category!");
         }
 
-        const audioPath = `/public/audio/${path.basename(audioFile.path)}`;
-        const imagePath = `/public/audio_image/${path.basename(imageFile.path)}`;
+        const audioPath = audioFile.path;
+        const imagePath = imageFile.path;
 
         const newAudio = await Audio.create({
             audioCategoryId,
@@ -66,12 +51,6 @@ export const addAudio = async (req, res) => {
 
         return sendSuccessResponse(res, "Audio created Successfully...", newAudio);
     } catch (error) {
-        if (req.files && req.files.audio) {
-            try { fs.unlinkSync(req.files.audio[0].path); } catch (err) { console.error("Failed to delete uploaded audio file:", err); }
-        }
-        if (req.files && req.files.audio_image) {
-            try { fs.unlinkSync(req.files.audio_image[0].path); } catch (err) { console.error("Failed to delete uploaded image file:", err); }
-        }
         return ThrowError(res, 500, error.message);
     }
 };
@@ -106,24 +85,32 @@ export const getAudioById = async (req, res) => {
     }
 };
 
+export const getAudioByCategoryId = async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return sendBadRequestResponse(res, "Invalid Audio Category Id");
+        }
+        const audio = await Audio.find({ audioCategoryId: id });
+        if (!audio || audio.length === 0) {
+            return sendBadRequestResponse(res, "No Audio found!");
+        }
+        return sendSuccessResponse(res, "Audio fetched Successfully...", audio);
+    } catch (error) {
+        return ThrowError(res, 500, error.message);
+    }
+};
+
 // Update audio
 export const updateAudio = async (req, res) => {
     try {
         const { id } = req.params;
         if (!mongoose.Types.ObjectId.isValid(id)) {
-            if (req.files) {
-                if (req.files.audio) fs.unlinkSync(req.files.audio[0].path);
-                if (req.files.audio_image) fs.unlinkSync(req.files.audio_image[0].path);
-            }
             return sendBadRequestResponse(res, "Invalid Audio Id");
         }
 
         let audio = await Audio.findById(id);
         if (!audio) {
-            if (req.files) {
-                if (req.files.audio) fs.unlinkSync(req.files.audio[0].path);
-                if (req.files.audio_image) fs.unlinkSync(req.files.audio_image[0].path);
-            }
             return sendBadRequestResponse(res, "Audio not found");
         }
 
@@ -141,39 +128,27 @@ export const updateAudio = async (req, res) => {
 
         if (req.files) {
             if (req.files.audio_image) {
-                const imageFile = req.files.audio_image[0];
-                updateData.audio_image = `/public/audio_image/${path.basename(imageFile.path)}`;
-                if (audio.audio_image) {
-                    const oldImagePath = path.join(process.cwd(), audio.audio_image);
-                    if (fs.existsSync(oldImagePath)) {
-                        fs.unlinkSync(oldImagePath);
-                    }
+                if (audio.audio_image && audio.audio_image.includes('.amazonaws.com/')) {
+                    const oldKey = audio.audio_image.split('.amazonaws.com/')[1];
+                    if (oldKey) deleteFromS3(oldKey).catch(err => console.error("Failed to delete old audio image from S3:", err));
                 }
+                const imageFile = req.files.audio_image[0];
+                updateData.audio_image = imageFile.path;
             }
 
             if (req.files.audio) {
-                const audioFile = req.files.audio[0];
-                updateData.audio = `/public/audio/${path.basename(audioFile.path)}`;
-                if (audio.audio) {
-                    const oldAudioPath = path.join(process.cwd(), audio.audio);
-                    if (fs.existsSync(oldAudioPath)) {
-                        fs.unlinkSync(oldAudioPath);
-                    }
+                if (audio.audio && audio.audio.includes('.amazonaws.com/')) {
+                    const oldKey = audio.audio.split('.amazonaws.com/')[1];
+                    if (oldKey) deleteFromS3(oldKey).catch(err => console.error("Failed to delete old audio file from S3:", err));
                 }
+                const audioFile = req.files.audio[0];
+                updateData.audio = audioFile.path;
             }
         }
 
         const updatedAudio = await Audio.findByIdAndUpdate(id, updateData, { new: true });
         return sendSuccessResponse(res, "Audio Updated Successfully...", updatedAudio);
     } catch (error) {
-        if (req.files) {
-            if (req.files.audio) {
-                try { fs.unlinkSync(req.files.audio[0].path); } catch (err) { console.error("Failed to delete uploaded audio file:", err); }
-            }
-            if (req.files.audio_image) {
-                try { fs.unlinkSync(req.files.audio_image[0].path); } catch (err) { console.error("Failed to delete uploaded image file:", err); }
-            }
-        }
         return ThrowError(res, 500, error.message);
     }
 };
@@ -185,26 +160,20 @@ export const deleteAudio = async (req, res) => {
         if (!mongoose.Types.ObjectId.isValid(id)) {
             return sendBadRequestResponse(res, "Invalid Audio Id");
         }
-        
+
         const audio = await Audio.findById(id);
         if (!audio) {
             return sendBadRequestResponse(res, "Audio not found");
         }
 
-        // Delete audio file if it exists
-        if (audio.audio) {
-            const oldAudioPath = path.join(process.cwd(), audio.audio);
-            if (fs.existsSync(oldAudioPath)) {
-                try { fs.unlinkSync(oldAudioPath); } catch (err) { console.error("Failed to delete audio file:", oldAudioPath, err); }
-            }
+        // Delete associated files from S3
+        if (audio.audio && audio.audio.includes('.amazonaws.com/')) {
+            const key = audio.audio.split('.amazonaws.com/')[1];
+            if (key) deleteFromS3(key).catch(err => console.error("Failed to delete audio file from S3:", err));
         }
-
-        // Delete image file if it exists
-        if (audio.audio_image) {
-            const oldImagePath = path.join(process.cwd(), audio.audio_image);
-            if (fs.existsSync(oldImagePath)) {
-                try { fs.unlinkSync(oldImagePath); } catch (err) { console.error("Failed to delete image file:", oldImagePath, err); }
-            }
+        if (audio.audio_image && audio.audio_image.includes('.amazonaws.com/')) {
+            const key = audio.audio_image.split('.amazonaws.com/')[1];
+            if (key) deleteFromS3(key).catch(err => console.error("Failed to delete audio image from S3:", err));
         }
 
         const deletedAudio = await Audio.findByIdAndDelete(id);

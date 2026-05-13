@@ -1,41 +1,14 @@
 import multer from 'multer';
-import fs from 'fs';
 import path from 'path';
-import sharp from 'sharp';
-import dotenv from 'dotenv';
+import { uploadToS3, resizeImage } from '../utils/uploadS3.js';
 
-dotenv.config();
-
-// Configure storage
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        let uploadPath = 'public/';
-        if (file.fieldname === 'profilePic') {
-            uploadPath += 'profilePic';
-        } else if (file.fieldname === 'audio') {
-            uploadPath += 'audio';
-        } else if (file.fieldname === 'audio_image') {
-            uploadPath += 'audio_image';
-        } else if (file.fieldname === 'post_image') {
-            uploadPath += 'post_images';
-        } else if (file.fieldname === 'post_video') {
-            uploadPath += 'post_videos';
-        }
-
-        if (!fs.existsSync(uploadPath)) {
-            fs.mkdirSync(uploadPath, { recursive: true });
-        }
-
-        cb(null, uploadPath);
-    },
-    filename: function (req, file, cb) {
-        cb(null, Date.now() + path.extname(file.originalname));
-    }
-});
+// Use memory storage for S3 uploads
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
     const isAudio = file.mimetype.startsWith('audio/');
     const isImage = file.mimetype.startsWith('image/');
+    const isVideo = file.mimetype.startsWith('video/');
     const isOctetStream = file.mimetype === 'application/octet-stream';
     const ext = path.extname(file.originalname).toLowerCase();
     const isJfifExt = ext === '.jfif';
@@ -53,7 +26,7 @@ const fileFilter = (req, file, cb) => {
             cb(new Error(`File for "${file.fieldname}" field must be an image.`), false);
         }
     } else if (file.fieldname === 'post_video') {
-        if (file.mimetype.startsWith('video/')) {
+        if (isVideo) {
             cb(null, true);
         } else {
             cb(new Error('Only video files are allowed!'), false);
@@ -69,79 +42,90 @@ const upload = multer({
     limits: { fileSize: 1024 * 1024 * 200 } // 200MB file size limit
 });
 
-const uploadHandlers = {
-    single: (fieldName) => upload.single(fieldName),
-    fields: (fields) => upload.fields(fields)
-};
-
-// Error handling middleware
-const handleMulterError = (err, req, res, next) => {
-    console.log('Upload error:', err);
-
-    if (err instanceof multer.MulterError) {
-        return res.status(400).json({
-            success: false,
-            message: err.message
-        });
-    } else if (err) {
-        return res.status(400).json({
-            success: false,
-            message: err.message
-        });
-    }
-    next();
-};
-
-const convertJfifToJpeg = async (req, res, next) => {
+// Middleware to process and upload to S3
+const uploadToS3Middleware = async (req, res, next) => {
     try {
-        if (!req.files) return next();
+        if (!req.files && !req.file) return next();
 
-        const conversionPromises = [];
+        const uploadPromises = [];
 
-        for (const fieldName in req.files) {
-            const files = req.files[fieldName];
-            for (const file of files) {
-                const isImageField = fieldName === 'audio_image' || fieldName === 'profilePic' || fieldName === 'post_image';
-                if (!isImageField) continue;
+        // Handle single file (if upload.single was used)
+        if (req.file) {
+            const file = req.file;
+            let folder = "others";
+            if (file.fieldname === "profilePic") folder = "profile_pics";
 
-                const ext = path.extname(file.originalname).toLowerCase();
-                const isConvertible = ext === '.jfif' || file.mimetype === 'image/jfif' || file.mimetype === 'application/octet-stream';
+            const promise = (async () => {
+                let buffer = file.buffer;
+                let mimetype = file.mimetype;
+                let originalname = file.originalname;
 
-                if (isConvertible) {
+                // Resize profile pics
+                if (file.fieldname === "profilePic") {
+                    buffer = await resizeImage(buffer, { width: 400, height: 400 });
+                    mimetype = 'image/jpeg';
+                    if (!originalname.toLowerCase().endsWith('.jpeg') && !originalname.toLowerCase().endsWith('.jpg')) {
+                        originalname = originalname.replace(/\.[^/.]+$/, "") + ".jpeg";
+                    }
+                }
+
+                const s3Url = await uploadToS3(buffer, originalname, mimetype, folder);
+                file.path = s3Url; // Set path to S3 URL for compatibility with existing controllers
+                file.location = s3Url;
+            })();
+            uploadPromises.push(promise);
+        }
+
+        // Handle multiple fields (if upload.fields was used)
+        if (req.files) {
+            for (const fieldName in req.files) {
+                const files = req.files[fieldName];
+                for (const file of files) {
+                    let folder = "others";
+                    if (fieldName === "profilePic") folder = "profile_pics";
+                    else if (fieldName === "audio") folder = "audios";
+                    else if (fieldName === "audio_image") folder = "audio_images";
+                    else if (fieldName === "post_image") folder = "post_images";
+                    else if (fieldName === "post_video") folder = "post_videos";
+
                     const promise = (async () => {
-                        const inputPath = file.path;
-                        const outputPath = inputPath.replace(/\.[^/.]+$/, "") + ".jpeg";
+                        let buffer = file.buffer;
+                        let mimetype = file.mimetype;
+                        let originalname = file.originalname;
 
-                        await sharp(inputPath).jpeg().toFile(outputPath);
+                        // Image processing
+                        const isImageField = ['profilePic', 'audio_image', 'post_image'].includes(fieldName);
+                        if (isImageField) {
+                            let resizeOptions = {};
+                            if (fieldName === 'profilePic') resizeOptions = { width: 400, height: 400 };
+                            else if (fieldName === 'post_image') resizeOptions = { width: 1024, height: 1024 };
+                            else if (fieldName === 'audio_image') resizeOptions = { width: 500, height: 500 };
 
-                        if (fs.existsSync(inputPath)) {
-                            fs.unlinkSync(inputPath);
+                            buffer = await resizeImage(buffer, resizeOptions);
+                            mimetype = 'image/jpeg';
+                            if (!originalname.toLowerCase().endsWith('.jpeg') && !originalname.toLowerCase().endsWith('.jpg')) {
+                                originalname = originalname.replace(/\.[^/.]+$/, "") + ".jpeg";
+                            }
                         }
 
-                        file.path = outputPath;
-                        file.filename = path.basename(outputPath);
-                        file.mimetype = 'image/jpeg';
+                        const s3Url = await uploadToS3(buffer, originalname, mimetype, folder);
+                        file.path = s3Url; // Set path to S3 URL for compatibility
+                        file.location = s3Url;
                     })();
-                    conversionPromises.push(promise);
+                    uploadPromises.push(promise);
                 }
             }
         }
 
-        await Promise.all(conversionPromises);
+        await Promise.all(uploadPromises);
         next();
-    } catch (err) {
-        console.error('Error in convertJfifToJpeg:', err);
-        
-        next(err);
+    } catch (error) {
+        console.error("S3 Upload Middleware Error:", error);
+        res.status(500).json({ success: false, message: "Error uploading files to S3" });
     }
 };
 
-export const uploadMedia = upload.fields([
-    { name: 'profilePic', maxCount: 1 },
-    { name: 'audio', maxCount: 1 },
-    { name: 'audio_image', maxCount: 1 },
-    { name: 'post_image', maxCount: 1 },
-    { name: 'post_video', maxCount: 1 }
-]);
+// Placeholder for backward compatibility if needed
+const convertJfifToJpeg = (req, res, next) => next();
 
-export { upload, convertJfifToJpeg, handleMulterError };
+export { upload, uploadToS3Middleware, convertJfifToJpeg };

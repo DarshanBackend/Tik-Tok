@@ -8,6 +8,7 @@ import mongoose from 'mongoose';
 import moment from "moment";
 import { getReceiverSocketId, io } from '../socket/socket.js';
 import { ThrowError } from '../utils/ErrorUtils.js';
+import { deleteFromS3 } from '../utils/uploadS3.js';
 
 
 export const addNewPost = async (req, res) => {
@@ -15,13 +16,12 @@ export const addNewPost = async (req, res) => {
         const { caption, status, audioId, allow_comment, isPrivate, saveToDevice } = req.body;
         let taggedFriends = req.body.taggedFriends;
 
-        const imageFile = req.files?.post_image?.[0];
         const videoFile = req.files?.post_video?.[0];
         const userId = req.user._id;
 
         // Must contain at least one of caption/image/video
-        if (!caption && !imageFile && !videoFile) {
-            return sendBadRequestResponse(res, 'Post must have a caption, image, or video.');
+        if (!videoFile) {
+            return sendBadRequestResponse(res, 'Post must have a video.');
         }
 
         const user = await User.findById(userId);
@@ -54,31 +54,21 @@ export const addNewPost = async (req, res) => {
             taggedFriends = filteredTagged.map(u => u._id.toString());
 
             if (taggedFriends.length === 0 && req.body.taggedFriends.length > 0) {
-                if (imageFile?.path && fs.existsSync(imageFile.path)) {
-                    fs.unlinkSync(imageFile.path);
-                }
-                if (videoFile?.path && fs.existsSync(videoFile.path)) {
-                    fs.unlinkSync(videoFile.path);
-                }
                 return sendBadRequestResponse(res, "You cannot tag private users who are not your followers.");
-            }   
+            }
         }
 
         // ✅ Validate audioId format if provided
         if (audioId && !mongoose.Types.ObjectId.isValid(audioId)) {
-            imageFile?.path && fs.existsSync(imageFile.path) && fs.unlinkSync(imageFile.path);
-            videoFile?.path && fs.existsSync(videoFile.path) && fs.unlinkSync(videoFile.path);
             return sendBadRequestResponse(res, 'Invalid Audio ID format.');
         }
 
-        let imageUrl = imageFile ? `/public/post_images/${path.basename(imageFile.path)}` : '';
-        let videoUrl = videoFile ? `/public/post_videos/${path.basename(videoFile.path)}` : '';
+        let videoUrl = videoFile ? videoFile.path : '';
 
         // ✅ Create new post
         const newPost = await Post.create({
             user: userId,
             caption,
-            image: imageUrl,
             video: videoUrl,
             audioId,
             status: status || 'published',
@@ -106,10 +96,6 @@ export const addNewPost = async (req, res) => {
         return sendSuccessResponse(res, 'Post created successfully.', newPost);
     } catch (error) {
         console.error("Error in addNewPost:", error);
-
-        req.files?.post_image?.[0]?.path && fs.existsSync(req.files.post_image[0].path) && fs.unlinkSync(req.files.post_image[0].path);
-        req.files?.post_video?.[0]?.path && fs.existsSync(req.files.post_video[0].path) && fs.unlinkSync(req.files.post_video[0].path);
-
         return sendErrorResponse(res, 500, error.message);
     }
 };
@@ -207,7 +193,6 @@ export const getFriendsProfile = async (req, res) => {
     try {
         const userId = req.user._id;
 
-        // Get the logged-in user's following list
         const user = await User.findById(userId);
         if (!user) return sendBadRequestResponse(res, "User not found.");
 
@@ -217,10 +202,9 @@ export const getFriendsProfile = async (req, res) => {
             return sendSuccessResponse(res, "You are not following anyone yet.", []);
         }
 
-        // Fetch profiles of followed users
         const profiles = await User.find({
             _id: { $in: followingIds },
-            blockedUsers: { $ne: userId }  // Exclude users who blocked this user
+            blockedUsers: { $ne: userId }
         })
 
         return sendSuccessResponse(res, "Profile from followed users fetched successfully.", profiles);
@@ -299,7 +283,6 @@ export const updatePost = async (req, res) => {
         const { caption, status, allow_comment, isPrivate, saveToDevice } = req.body;
         const userId = req.user._id;
 
-        const imageFile = req.files?.post_image?.[0];
         const videoFile = req.files?.post_video?.[0];
 
         if (!mongoose.Types.ObjectId.isValid(postId)) {
@@ -319,26 +302,14 @@ export const updatePost = async (req, res) => {
         if (typeof isPrivate !== 'undefined') post.isPrivate = isPrivate;
         if (typeof saveToDevice !== 'undefined') post.saveToDevice = saveToDevice;
 
-        // Replace image if new one uploaded
-        if (imageFile) {
-            if (post.image) {
-                const oldImagePath = path.join(process.cwd(), post.image);
-                if (fs.existsSync(oldImagePath)) {
-                    try { fs.unlinkSync(oldImagePath); } catch (err) { console.error("Failed to delete old image:", err); }
-                }
-            }
-            post.image = `/public/post_images/${path.basename(imageFile.path)}`;
-        }
 
         // Replace video if new one uploaded
         if (videoFile) {
-            if (post.video) {
-                const oldVideoPath = path.join(process.cwd(), post.video);
-                if (fs.existsSync(oldVideoPath)) {
-                    try { fs.unlinkSync(oldVideoPath); } catch (err) { console.error("Failed to delete old video:", err); }
-                }
+            if (post.video && post.video.includes('.amazonaws.com/')) {
+                const oldKey = post.video.split('.amazonaws.com/')[1];
+                if (oldKey) deleteFromS3(oldKey).catch(err => console.error("Failed to delete old video from S3:", err));
             }
-            post.video = `/public/post_videos/${path.basename(videoFile.path)}`;
+            post.video = videoFile.path;
         }
 
         await post.save();
@@ -346,13 +317,6 @@ export const updatePost = async (req, res) => {
         return sendSuccessResponse(res, 'Post updated successfully.', post);
     } catch (error) {
         console.error("Update post error:", error);
-        // Cleanup uploaded files if save fails
-        if (req.files?.post_image?.[0]?.path) {
-            try { fs.unlinkSync(req.files.post_image[0].path); } catch { }
-        }
-        if (req.files?.post_video?.[0]?.path) {
-            try { fs.unlinkSync(req.files.post_video[0].path); } catch { }
-        }
         return sendErrorResponse(res, 500, error.message);
     }
 };
@@ -372,20 +336,14 @@ export const deletePost = async (req, res) => {
             return sendBadRequestResponse(res, 'Post not found or not owned by you.');
         }
 
-        // Delete image file if exists
-        if (post.image) {
-            const imagePath = path.join(process.cwd(), post.image);
-            if (fs.existsSync(imagePath)) {
-                try { fs.unlinkSync(imagePath); } catch (err) { console.error("Image deletion failed:", err); }
-            }
+        // Delete associated files from S3
+        if (post.image && post.image.includes('.amazonaws.com/')) {
+            const key = post.image.split('.amazonaws.com/')[1];
+            if (key) deleteFromS3(key).catch(err => console.error("Failed to delete post image from S3:", err));
         }
-
-        // Delete video file if exists
-        if (post.video) {
-            const videoPath = path.join(process.cwd(), post.video);
-            if (fs.existsSync(videoPath)) {
-                try { fs.unlinkSync(videoPath); } catch (err) { console.error("Video deletion failed:", err); }
-            }
+        if (post.video && post.video.includes('.amazonaws.com/')) {
+            const key = post.video.split('.amazonaws.com/')[1];
+            if (key) deleteFromS3(key).catch(err => console.error("Failed to delete post video from S3:", err));
         }
 
         // Delete the post itself
@@ -506,6 +464,10 @@ export const getSavedPosts = async (req, res) => {
         }
 
         const savePosts = user.saved.filter(post => post !== null);
+
+        if (savePosts.length === 0) {
+            return sendSuccessResponse(res, "You have not saved any posts yet...", [])
+        }
 
         return sendSuccessResponse(res, "Saved posts fetched successfully...", savePosts)
 

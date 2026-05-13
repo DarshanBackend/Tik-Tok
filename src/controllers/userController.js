@@ -8,6 +8,7 @@ import { sendSuccessResponse, sendErrorResponse, sendBadRequestResponse, sendFor
 import { getReceiverSocketId, io } from "../socket/socket.js";
 import Post from "../models/postModel.js"
 import Comment from "../models/commentModel.js"
+import { deleteFromS3 } from "../utils/uploadS3.js";
 
 
 export const register = async (req, res) => {
@@ -67,23 +68,11 @@ export const editProfile = async (req, res) => {
         } = req.body;
 
         if (!req.user || (req.user._id.toString() !== userId && req.user.role !== 'admin')) {
-            if (req.file) {
-                const filePath = path.resolve(req.file.path);
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
-                }
-            }
             return sendForbiddenResponse(res, "Access denied. You can only update your own profile.");
         }
 
         const existingUser = await User.findById(userId);
         if (!existingUser) {
-            if (req.file) {
-                const filePath = path.resolve(req.file.path);
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
-                }
-            }
             return sendErrorResponse(res, 404, "User not found");
         }
 
@@ -105,11 +94,11 @@ export const editProfile = async (req, res) => {
 
         // Handle image upload
         if (req.file) {
-            const newImagePath = `/public/profilePic/${path.basename(req.file.path)}`;
-            if (existingUser.profilePic && fs.existsSync(path.join(process.cwd(), existingUser.profilePic))) {
-                fs.unlinkSync(path.join(process.cwd(), existingUser.profilePic));
+            if (existingUser.profilePic && existingUser.profilePic.includes('.amazonaws.com/')) {
+                const oldKey = existingUser.profilePic.split('.amazonaws.com/')[1];
+                if (oldKey) deleteFromS3(oldKey).catch(err => console.error("Failed to delete old profile pic from S3:", err));
             }
-            existingUser.profilePic = newImagePath;
+            existingUser.profilePic = req.file.path;
         }
 
         // Update allowed fields
@@ -126,12 +115,6 @@ export const editProfile = async (req, res) => {
         return sendSuccessResponse(res, "User updated successfully", userResponse);
 
     } catch (error) {
-        if (req.file) {
-            const filePath = path.resolve(req.file.path);
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-            }
-        }
         return sendErrorResponse(res, 500, error.message);
     }
 };
@@ -155,8 +138,13 @@ export const getAllUsers = async (req, res) => {
             return sendSuccessResponse(res, "No users found", []);
         }
 
+        const formattedUsers = users.map(user => ({
+            ...user._doc,
+            profilePic: user.profilePic || "https://avatar.iran.liara.run/public"
+        }));
+
         // Send a success response with the fetched users
-        return sendSuccessResponse(res, "Users fetched successfully", users);
+        return sendSuccessResponse(res, "Users fetched successfully", formattedUsers);
 
     } catch (error) {
         return ThrowError(res, 500, error.message)
@@ -188,6 +176,10 @@ export const getUserById = async (req, res) => {
         const userResponse = user.toObject();
         delete userResponse.password;
 
+        if (!userResponse.profilePic) {
+            userResponse.profilePic = "https://avatar.iran.liara.run/public";
+        }
+
         return sendSuccessResponse(res, "User retrieved successfully", userResponse);
     } catch (error) {
         return ThrowError(res, 500, error.message)
@@ -207,33 +199,21 @@ export const editUser = async (req, res) => {
         } = req.body;
 
         if (!req.user || (req.user._id.toString() !== userId && req.user.role !== 'admin')) {
-            if (req.file) {
-                const filePath = path.resolve(req.file.path);
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
-                }
-            }
             return sendForbiddenResponse(res, "Access denied. You can only update your own profile.");
         }
 
         const existingUser = await User.findById(userId);
         if (!existingUser) {
-            if (req.file) {
-                const filePath = path.resolve(req.file.path);
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
-                }
-            }
             return sendErrorResponse(res, 404, "User not found");
         }
 
         // Handle image upload
         if (req.file) {
-            const newImagePath = `/public/profilePic/${path.basename(req.file.path)}`;
-            if (existingUser.profilePic && fs.existsSync(path.join(process.cwd(), existingUser.profilePic))) {
-                fs.unlinkSync(path.join(process.cwd(), existingUser.profilePic));
+            if (existingUser.profilePic && existingUser.profilePic.includes('.amazonaws.com/')) {
+                const oldKey = existingUser.profilePic.split('.amazonaws.com/')[1];
+                if (oldKey) deleteFromS3(oldKey).catch(err => console.error("Failed to delete old profile pic from S3:", err));
             }
-            existingUser.profilePic = newImagePath;
+            existingUser.profilePic = req.file.path;
         }
 
         // Update allowed fields
@@ -250,12 +230,6 @@ export const editUser = async (req, res) => {
         return sendSuccessResponse(res, "User updated successfully", userResponse);
 
     } catch (error) {
-        if (req.file) {
-            const filePath = path.resolve(req.file.path);
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-            }
-        }
         return sendErrorResponse(res, 500, error.message);
     }
 };
@@ -271,6 +245,12 @@ export const deleteUser = async (req, res) => {
         const user = await User.findById(userId);
         if (!user) {
             return sendErrorResponse(res, 404, "User not found");
+        }
+
+        // Delete profile pic from S3
+        if (user.profilePic && user.profilePic.includes('.amazonaws.com/')) {
+            const key = user.profilePic.split('.amazonaws.com/')[1];
+            if (key) deleteFromS3(key).catch(err => console.error("Failed to delete user profile pic from S3:", err));
         }
 
         // 1. Delete user's posts
@@ -331,19 +311,26 @@ export const searchUsers = async (req, res) => {
             return sendBadRequestResponse(res, "Query is required")
         }
 
-        // Search for users whose username or fullname starts with the query (case-insensitive)
+
         const users = await User.find({
+            _id: { $ne: req.user._id },
             $or: [
                 { username: { $regex: `^${query}`, $options: "i" } },
-                { name: { $regex: `^${query}`, $options: "i" } },
+                { name: { $regex: `${query}`, $options: "i" } },
             ],
-        }).select("username fullname profilePic _id");
+            role: { $ne: 'admin' },
+        }).select("username name profilePic _id");
 
         if (users.length === 0) {
             return sendNotFoundResponse(res, "No user found.")
         }
 
-        return sendSuccessResponse(res, "user fetched successfully...", users)
+        const formattedUsers = users.map(user => ({
+            ...user._doc,
+            profilePic: user.profilePic || "https://avatar.iran.liara.run/public"
+        }));
+
+        return sendSuccessResponse(res, "user fetched successfully...", formattedUsers)
     } catch (error) {
         return ThrowError(res, 500, error.message)
     }
@@ -361,7 +348,12 @@ export const suggestedUsers = async (req, res) => {
         if (!suggestedUsers) {
             return sendBadRequestResponse(res, "Currently do not have any users")
         }
-        return sendSuccessResponse(res, "Suggested users fetched successfully...", suggestedUsers)
+        const formattedSuggested = suggestedUsers.map(user => ({
+            ...user._doc,
+            profilePic: user.profilePic || "https://avatar.iran.liara.run/public"
+        }));
+
+        return sendSuccessResponse(res, "Suggested users fetched successfully...", formattedSuggested)
     } catch (error) {
         console.log(error);
     }
@@ -429,15 +421,6 @@ export const followOrUnfollow = async (req, res) => {
 
             const newUserData = await User.findById(userId);
             const newFollowingUser = await User.findById(followingUserId);
-
-            // ✅ Send real-time notification to followed user
-            //const notification = {
-            //type: "follow",
-            //message: `${user.username} started following you.`,
-            //senderId: userId,
-            //receiverId: followingUserId,
-            //timestamp: new Date(),
-            //};
 
             const notification = {
                 type: "follow",
