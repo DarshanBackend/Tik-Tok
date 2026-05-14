@@ -99,7 +99,7 @@ export const userLogin = async (req, res) => {
             await user.save();
 
             let sentTo = ["contact number"];
-            
+
             // Send OTP to contactNo
             await phoneNoOtp(contactNo, otp);
 
@@ -109,9 +109,9 @@ export const userLogin = async (req, res) => {
                 sentTo.push("email");
             }
 
-            return sendSuccessResponse(res, `OTP sent to ${sentTo.join(" and ")}`, { 
-                contactNo, 
-                email: user.email 
+            return sendSuccessResponse(res, `OTP sent to ${sentTo.join(" and ")}`, {
+                contactNo,
+                email: user.email
             });
         }
 
@@ -125,6 +125,10 @@ export const userLogin = async (req, res) => {
             return sendErrorResponse(res, 404, "User not found");
         }
 
+        if (!user.password) {
+            return sendBadRequestResponse(res, "This account does not have a password set. Please login using OTP or Google Auth.");
+        }
+
         // Validate password
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
@@ -132,30 +136,20 @@ export const userLogin = async (req, res) => {
         }
 
         // Always update lastLogin on successful login
-        // Now instead of direct login, we send an OTP
-        const otp = generateOTP();
-        user.otp = otp;
-        user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+        user.lastLogin = new Date();
         await user.save();
 
-        let sentTo = [];
-
-        // Send to Email
-        if (user.email) {
-            await sendOtpEmail(user.email, otp);
-            sentTo.push("email");
+        const token = await user.getJWT();
+        if (!token) {
+            return sendErrorResponse(res, 500, "Failed to generate token");
         }
 
-        // Send to Contact Number if exists
-        if (user.contactNo) {
-            await phoneNoOtp(user.contactNo, otp);
-            sentTo.push("contact number");
-        }
-
-        return sendSuccessResponse(res, `OTP sent to ${sentTo.join(" and ")}. Please verify to complete login.`, {
+        return sendSuccessResponse(res, "Login successful.", {
             id: user._id,
+            name: user.name,
             email: user.email,
-            contactNo: user.contactNo
+            contactNo: user.contactNo,
+            token: token
         });
     } catch (error) {
         return ThrowError(res, 500, error.message);
