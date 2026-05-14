@@ -69,15 +69,15 @@ export const register = async (req, res) => {
         });
 
         if (finalContactNo || email) {
-            const message = finalContactNo && email 
+            const message = finalContactNo && email
                 ? "OTP sent to mobile number and email. Please verify to complete registration."
-                : finalContactNo 
+                : finalContactNo
                     ? "OTP sent to mobile number. Please verify to complete registration."
                     : "OTP sent to email. Please verify to complete registration.";
-            
-            return sendCreatedResponse(res, message, { 
-                contactNo: finalContactNo, 
-                email: email 
+
+            return sendCreatedResponse(res, message, {
+                contactNo: finalContactNo,
+                email: email
             });
         }
 
@@ -482,3 +482,45 @@ export const followOrUnfollow = async (req, res) => {
         return ThrowError(res, 500, error.message)
     }
 };
+
+export const getUserProfile = async (req, res) => {
+    try {
+        const targetUserId = req.params.id;
+        const currentUserId = req.user._id;
+
+        const user = await User.findById(targetUserId).select('-password');
+
+        if (!user) {
+            return sendErrorResponse(res, 404, "User not found");
+        }
+
+        const followersCount = user.followers.length;
+        const followingsCount = user.followings.length;
+
+        const postsCount = await Post.countDocuments({ user: targetUserId, status: 'published' });
+
+        const isFollowing = user.followers.includes(currentUserId);
+
+        const isBlockedByTarget = user.blockedUsers ? user.blockedUsers.includes(currentUserId) : false;
+
+        const currentUser = await User.findById(currentUserId).select('blockedUsers');
+        const isBlockedByMe = currentUser.blockedUsers ? currentUser.blockedUsers.includes(targetUserId) : false;
+
+        const userProfile = {
+            ...user.toObject(),
+            followersCount,
+            followingsCount,
+            postsCount,
+            isFollowing,
+            isBlockedByTarget,
+            isBlockedByMe,
+            profilePic: user.profilePic || "https://avatar.iran.liara.run/public"
+        };
+
+        return sendSuccessResponse(res, "User profile retrieved successfully", userProfile);
+
+    } catch (error) {
+        return sendErrorResponse(res, 500, error.message);
+    }
+};
+
