@@ -524,3 +524,67 @@ export const getUserProfile = async (req, res) => {
     }
 };
 
+export const getFollowersList = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const currentUserId = req.user._id;
+
+        const user = await User.findById(id).populate({
+            path: 'followers',
+            select: 'name username profilePic'
+        });
+
+        if (!user) {
+            return sendErrorResponse(res, 404, "User not found");
+        }
+
+        const currentUser = await User.findById(currentUserId).select('followings');
+        const myFollowingIds = currentUser.followings.map(id => id.toString());
+
+        const followers = user.followers.map(follower => {
+            const followerObj = follower.toObject();
+            return {
+                ...followerObj,
+                profilePic: followerObj.profilePic || "https://avatar.iran.liara.run/public",
+                isFollowing: myFollowingIds.includes(follower._id.toString())
+            };
+        });
+
+        return sendSuccessResponse(res, "Followers list fetched successfully", followers);
+    } catch (error) {
+        return sendErrorResponse(res, 500, error.message);
+    }
+};
+
+export const getFollowingList = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const currentUserId = req.user._id;
+
+        const user = await User.findById(id).populate({
+            path: 'followings',
+            select: 'name username profilePic'
+        });
+
+        if (!user) {
+            return sendErrorResponse(res, 404, "User not found");
+        }
+
+        const currentUser = await User.findById(currentUserId).select('followings');
+        const myFollowingIds = currentUser.followings.map(id => id.toString());
+
+        const following = user.followings.map(followedUser => {
+            const followedObj = followedUser.toObject();
+            return {
+                ...followedObj,
+                profilePic: followedObj.profilePic || "https://avatar.iran.liara.run/public",
+                isFollowing: myFollowingIds.includes(followedUser._id.toString())
+            };
+        });
+
+        return sendSuccessResponse(res, "Following list fetched successfully", following);
+    } catch (error) {
+        return sendErrorResponse(res, 500, error.message);
+    }
+};
+

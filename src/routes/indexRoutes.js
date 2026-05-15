@@ -3,7 +3,7 @@ import { upload, convertJfifToJpeg, uploadToS3Middleware } from "../middlewares/
 import { listAllS3Images, deleteFromS3 } from "../utils/uploadS3.js";
 import { sendSuccessResponse, sendErrorResponse, sendBadRequestResponse } from "../utils/ResponseUtils.js";
 import { isAdmin, isUser, UserAuth } from "../middlewares/auth.js";
-import { deleteUser, editProfile, editUser, followOrUnfollow, getAllUsers, getUserById, register, searchUsers, suggestedUsers, getUserProfile } from "../controllers/userController.js";
+import { deleteUser, editProfile, editUser, followOrUnfollow, getAllUsers, getUserById, register, searchUsers, suggestedUsers, getUserProfile, getFollowersList, getFollowingList } from "../controllers/userController.js";
 import { changePassword, forgotPassword, googleAuth, resetPassword, userLogin, VerifyOtp, VerifyPhone } from "../controllers/loginController.js";
 import { addTermsOfServices, deleteTermsOfServices, getAllTermsOfServices, getTermsOfServicesById, updateTermsOfServices } from "../controllers/termsOfServicesController.js";
 import { addPrivacyPolicy, deletePrivacyPolicy, getAllPrivacyPolicy, getPrivacyPolicyById, updatePrivacyPolicy } from "../controllers/privacyPolicyController.js";
@@ -25,6 +25,8 @@ indexRoutes.get("/getUserProfile/:id", UserAuth, getUserProfile)
 indexRoutes.put("/editUser/:id", UserAuth, isAdmin, upload.single("profilePic"), uploadToS3Middleware, editUser)
 indexRoutes.put("/editProfile/:id", UserAuth, upload.single("profilePic"), uploadToS3Middleware, editProfile)
 indexRoutes.delete("/deleteUser/:id", UserAuth, deleteUser)
+indexRoutes.get("/getFollowersList/:id", UserAuth, getFollowersList)
+indexRoutes.get("/getFollowingList/:id", UserAuth, getFollowingList)
 
 //login Routes
 indexRoutes.post("/userLogin", userLogin)
