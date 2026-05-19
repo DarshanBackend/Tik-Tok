@@ -9,7 +9,7 @@ import { addTermsOfServices, deleteTermsOfServices, getAllTermsOfServices, getTe
 import { addPrivacyPolicy, deletePrivacyPolicy, getAllPrivacyPolicy, getPrivacyPolicyById, updatePrivacyPolicy } from "../controllers/privacyPolicyController.js";
 import { addHelpSupport, deleteHelpSupport, getAllHelpSupport, getHelpSupportById, updateHelpSupport } from "../controllers/helpSupportController.js";
 import { addReportCategory, deleteReportCategory, getAllReportCategory, getReportCategoryById, updateReportCategory } from "../controllers/reportCategoryController.js";
-import { addReport, deleteReport, getAllReports, getReportById, getReportByUserId, updateReport } from "../controllers/reportController.js";
+import { addReport, deleteReport, getAllReports, getReportById, getReportByUserId, updateReport, getReportByReportCategoryId } from "../controllers/reportController.js";
 import { addAudio, deleteAudio, getAllAudio, getAudioByCategoryId, getAudioById, updateAudio } from "../controllers/audioController.js";
 import { addNewPost, commentPost, deleteComment, deletePost, deleteReplyComment, getAllPost, getAudioIdByPosts, getCommentOfPost, getDrafts, getFollowingUsersPosts, getFriendsProfile, getLikedPostsByUser, getLikeOfPost, getPostsByUserId, getSavedPosts, getTaggedPosts, getUserPost, likeComment, publishDraft, removeDraft, replyComment, savePost, toggleBlockUser, toggleLikePost, updateComment, updatePost } from "../controllers/postController.js";
 import { addAudioCategory, deleteAudioCategory, getAllAudioCategory, getAudioCategoryById, updateAudioCategory } from "../controllers/audioCategoryController.js";
@@ -71,6 +71,7 @@ indexRoutes.post("/addReport", UserAuth, isUser, addReport)
 indexRoutes.get("/getAllReports", UserAuth, isAdmin, getAllReports)
 indexRoutes.get("/getReportById/:id", UserAuth, getReportById)
 indexRoutes.get("/getReportByUserId/:id", UserAuth, isAdmin, getReportByUserId)
+indexRoutes.get("/getReportByReportCategoryId/:id", UserAuth, isAdmin, getReportByReportCategoryId)
 indexRoutes.put("/updateReport/:id", UserAuth, isAdmin, updateReport)
 indexRoutes.delete("/deleteReport/:id", UserAuth, isAdmin, deleteReport)
 
