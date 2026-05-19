@@ -72,7 +72,7 @@ indexRoutes.get("/getAllReports", UserAuth, isAdmin, getAllReports)
 indexRoutes.get("/getReportById/:id", UserAuth, getReportById)
 indexRoutes.get("/getReportByUserId/:id", UserAuth, isAdmin, getReportByUserId)
 indexRoutes.get("/getReportByReportCategoryId/:id", UserAuth, getReportByReportCategoryId)
-indexRoutes.put("/updateReport/:id", UserAuth, isAdmin, updateReport)
+indexRoutes.put("/updateReport/:id", UserAuth, updateReport)
 indexRoutes.delete("/deleteReport/:id", UserAuth, isAdmin, deleteReport)
 
 //AudioCategory Routes
