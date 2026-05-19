@@ -107,7 +107,7 @@ export const getAllPost = async (req, res) => {
             status: "published",
         })
             .sort({ createdAt: -1 })
-            .populate({ path: "user", select: "username profilePic name" })
+            .populate({ path: "user", select: "profilePic name" })
             .populate({ path: "audioId", select: "audio_name audio_image audio artist_name" });
 
         if (!posts || posts.length === 0) {
