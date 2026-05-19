@@ -21,9 +21,9 @@ export const addReport = async (req, res) => {
             return sendNotFoundResponse(res, "ReportCategory not exist!!!");
         }
 
-        const existingReport = await Report.findOne({ user: req.user._id });
+        const existingReport = await Report.findOne({ user: req.user._id, reportCategoryId });
         if (existingReport) {
-            return sendBadRequestResponse(res, "You have already submitted a report.");
+            return sendBadRequestResponse(res, "You have already submitted a report for this category.");
         }
 
         const report = new Report({
@@ -63,11 +63,11 @@ export const getReportByUserId = async (req, res) => {
         if (!mongoose.Types.ObjectId.isValid(id)) {
             return sendBadRequestResponse(res, "Invalid User Id!!!");
         }
-        const report = await Report.findOne({ user: id }).populate('reportCategoryId').populate('user','username');
-        if (!report) {
-            return sendNotFoundResponse(res, "Report not found");
+        const reports = await Report.find({ user: id }).populate('reportCategoryId').populate('user','username');
+        if (!reports || reports.length === 0) {
+            return sendNotFoundResponse(res, "Reports not found");
         }
-        return sendSuccessResponse(res, "Report fetched successfully", report);
+        return sendSuccessResponse(res, "Reports fetched successfully", reports);
     } catch (error) {
         return ThrowError(res, 500, error.message);
     }
