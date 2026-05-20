@@ -744,7 +744,7 @@ export const replyComment = async (req, res) => {
         parentComment.replies.push(reply._id);
         await parentComment.save();
 
-        await reply.populate("user", "username profilePic");
+        await reply.populate("user", "name profilePic");
 
         return sendSuccessResponse(res, "Reply added", {
             ...reply._doc,
