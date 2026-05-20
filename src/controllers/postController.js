@@ -625,8 +625,13 @@ function getTimeAgo(timestamp) {
 }
 
 async function populateReplies(comment, depth = 0, currentUserId = null) {
-    await comment.populate("user", "username profilePic");
-    await comment.populate("replies");
+    // Only populate if not already populated
+    if (!comment.populated("user")) {
+        await comment.populate("user", "name username profilePic");
+    }
+    if (!comment.populated("replies")) {
+        await comment.populate("replies");
+    }
 
     const formatted = {
         _id: comment._id,
@@ -791,7 +796,7 @@ export const getCommentOfPost = async (req, res) => {
         const postId = req.params.id;
         if (!mongoose.Types.ObjectId.isValid(postId)) return sendBadRequestResponse(res, "Invalid postId");
 
-        const rootComments = await Comment.find({ post: postId, parent: null }).sort({ createdAt: -1 });
+        const rootComments = await Comment.find({ post: postId, parent: null }).sort({ createdAt: -1 }).populate("user", "name profilePic");
         if (!rootComments.length) return res.status(404).json({ message: "No comments yet", success: false });
 
         const result = [];
