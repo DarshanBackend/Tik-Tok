@@ -9,6 +9,7 @@ import moment from "moment";
 import { getReceiverSocketId, io } from '../socket/socket.js';
 import { ThrowError } from '../utils/ErrorUtils.js';
 import { deleteFromS3 } from '../utils/uploadS3.js';
+import jwt from "jsonwebtoken";
 
 
 export const addNewPost = async (req, res) => {
@@ -102,21 +103,53 @@ export const addNewPost = async (req, res) => {
 
 export const getAllPost = async (req, res) => {
     try {
+        let viewerId = null;
+        const token = req.header('Authorization')?.replace('Bearer ', '');
+        if (token) {
+            try {
+                const decodedObj = jwt.verify(token, process.env.JWT_SECRET);
+                viewerId = decodedObj._id;
+            } catch (err) {
+                console.log("Token verification error:", err.message);
+            }
+        }
+
         const posts = await Post.find({
             isPrivate: false,
             status: "published",
         })
             .sort({ createdAt: -1 })
-            .populate({ path: "user", select: "profilePic name" })
+            .populate({ path: "user", select: "profilePic name followers" })
             .populate({ path: "audioId", select: "audio_name audio_image audio artist_name" });
 
         if (!posts || posts.length === 0) {
             return sendNotFoundResponse(res, "No posts found...")
         }
 
-        return sendSuccessResponse(res, "post fetched successfully...", posts)
+        const formattedPosts = posts.map((post) => {
+            const postObj = post.toObject();
+            let isFollowing = false;
+
+            if (viewerId && postObj.user && Array.isArray(postObj.user.followers)) {
+                isFollowing = postObj.user.followers.some(
+                    (followerId) => followerId.toString() === viewerId.toString()
+                );
+            }
+
+            if (postObj.user && postObj.user.followers) {
+                delete postObj.user.followers;
+            }
+
+            return {
+                ...postObj,
+                isFollowing
+            };
+        });
+
+        return sendSuccessResponse(res, "post fetched successfully...", formattedPosts)
     } catch (error) {
         console.log(error);
+        return sendErrorResponse(res, 500, "Internal Server Error");
     }
 };
 
