@@ -192,24 +192,11 @@ export const getUserById = async (req, res) => {
     try {
         const { id } = req.params;
 
-        // Check if user exists and has proper role
-        if (!req.user) {
-            return sendUnauthorizedResponse(res, "Authentication required");
-        }
-
-        // Check if user is admin or accessing their own profile
-        const isAdmin = req.user.role === 'admin';
-        if (!isAdmin && req.user._id.toString() !== id) {
-            return sendForbiddenResponse(res, "Access denied. You can only view your own profile.");
-        }
-
-        // Use findById for more robust lookup
         const user = await User.findById(id);
         if (!user) {
             return sendErrorResponse(res, 404, "User not found", []);
         }
 
-        // Prepare user response (exclude password)
         const userResponse = user.toObject();
         delete userResponse.password;
 
