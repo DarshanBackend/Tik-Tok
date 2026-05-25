@@ -428,45 +428,200 @@ export const followOrUnfollow = async (req, res) => {
                 success: true,
             });
         } else {
-            // Follow logic
-            await Promise.all([
-                User.findByIdAndUpdate(
-                    userId,
-                    { $push: { followings: followingUserId } },
-                    { new: true }
-                ),
-                User.findByIdAndUpdate(
-                    followingUserId,
-                    { $push: { followers: userId } },
-                    { new: true }
-                ),
-            ]);
+            // Check if private
+            if (followingUser.isPrivate) {
+                const hasRequested = (followingUser.followRequests || []).includes(userId);
+                if (hasRequested) {
+                    // Cancel follow request
+                    await User.findByIdAndUpdate(
+                        followingUserId,
+                        { $pull: { followRequests: userId } },
+                        { new: true }
+                    );
 
-            const newUserData = await User.findById(userId);
-            const newFollowingUser = await User.findById(followingUserId);
+                    const newFollowingUser = await User.findById(followingUserId);
+                    return res.status(200).json({
+                        message: "Follow request cancelled",
+                        user,
+                        followingUser: newFollowingUser,
+                        success: true,
+                    });
+                } else {
+                    // Send follow request
+                    await User.findByIdAndUpdate(
+                        followingUserId,
+                        { $push: { followRequests: userId } },
+                        { new: true }
+                    );
 
-            const notification = {
-                type: "follow",
-                userId: userId,
-                userDetails: user,
-                message: `started following you.`,
-            };
+                    const newFollowingUser = await User.findById(followingUserId);
 
-            const receiverSocketId = getReceiverSocketId(followingUserId);
+                    const notification = {
+                        type: "follow_request",
+                        userId: userId,
+                        userDetails: user,
+                        message: `sent you a follow request.`,
+                    };
 
-            if (receiverSocketId) {
-                io.to(receiverSocketId).emit("notification", notification);
+                    const receiverSocketId = getReceiverSocketId(followingUserId);
+                    if (receiverSocketId) {
+                        io.to(receiverSocketId).emit("notification", notification);
+                    }
+
+                    return res.status(200).json({
+                        message: "Follow request sent",
+                        user,
+                        followingUser: newFollowingUser,
+                        success: true,
+                    });
+                }
+            } else {
+                // Follow logic
+                await Promise.all([
+                    User.findByIdAndUpdate(
+                        userId,
+                        { $push: { followings: followingUserId } },
+                        { new: true }
+                    ),
+                    User.findByIdAndUpdate(
+                        followingUserId,
+                        { $push: { followers: userId } },
+                        { new: true }
+                    ),
+                ]);
+
+                const newUserData = await User.findById(userId);
+                const newFollowingUser = await User.findById(followingUserId);
+
+                const notification = {
+                    type: "follow",
+                    userId: userId,
+                    userDetails: user,
+                    message: `started following you.`,
+                };
+
+                const receiverSocketId = getReceiverSocketId(followingUserId);
+
+                if (receiverSocketId) {
+                    io.to(receiverSocketId).emit("notification", notification);
+                }
+
+                return res.status(200).json({
+                    message: "Following",
+                    user: newUserData,
+                    followingUser: newFollowingUser,
+                    success: true,
+                });
             }
-
-            return res.status(200).json({
-                message: "Following",
-                user: newUserData,
-                followingUser: newFollowingUser,
-                success: true,
-            });
         }
     } catch (error) {
         return ThrowError(res, 500, error.message)
+    }
+};
+
+export const getFollowRequests = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const user = await User.findById(userId).populate("followRequests", "username profilePic name");
+
+        if (!user) {
+            return sendBadRequestResponse(res, "User not found");
+        }
+
+        if (user.followRequests.length === 0) {
+            return sendSuccessResponse(res, "No follow requests found", []);
+        }
+
+        return sendSuccessResponse(res, "Follow requests fetched successfully", user.followRequests);
+    } catch (error) {
+        return ThrowError(res, 500, error.message);
+    }
+};
+
+export const acceptFollowRequest = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const requesterId = req.params.id;
+
+        if (!mongoose.Types.ObjectId.isValid(requesterId)) {
+            return sendBadRequestResponse(res, "Invalid Requester ID");
+        }
+
+        const user = await User.findById(userId);
+        const requester = await User.findById(requesterId);
+
+        if (!user || !requester) {
+            return sendBadRequestResponse(res, "User not found");
+        }
+
+        const hasRequested = user.followRequests && user.followRequests.includes(requesterId);
+        if (!hasRequested) {
+            return sendBadRequestResponse(res, "No pending follow request from this user");
+        }
+
+        // Accept: remove from followRequests, add to followers/followings
+        await Promise.all([
+            User.findByIdAndUpdate(
+                userId,
+                {
+                    $pull: { followRequests: requesterId },
+                    $push: { followers: requesterId }
+                },
+                { new: true }
+            ),
+            User.findByIdAndUpdate(
+                requesterId,
+                { $push: { followings: userId } },
+                { new: true }
+            ),
+        ]);
+
+        const notification = {
+            type: "follow_request_accepted",
+            userId: userId,
+            userDetails: user,
+            message: `accepted your follow request.`,
+        };
+
+        const receiverSocketId = getReceiverSocketId(requesterId);
+        if (receiverSocketId) {
+            io.to(receiverSocketId).emit("notification", notification);
+        }
+
+        return sendSuccessResponse(res, "Follow request accepted successfully");
+    } catch (error) {
+        return ThrowError(res, 500, error.message);
+    }
+};
+
+export const rejectFollowRequest = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const requesterId = req.params.id;
+
+        if (!mongoose.Types.ObjectId.isValid(requesterId)) {
+            return sendBadRequestResponse(res, "Invalid Requester ID");
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return sendBadRequestResponse(res, "User not found");
+        }
+
+        const hasRequested = user.followRequests && user.followRequests.includes(requesterId);
+        if (!hasRequested) {
+            return sendNotFoundResponse(res, "Follow request not found");
+        }
+
+        await User.findByIdAndUpdate(
+            userId,
+            { $pull: { followRequests: requesterId } },
+            { new: true }
+        );
+
+        return sendSuccessResponse(res, "Follow request rejected successfully");
+    } catch (error) {
+        return ThrowError(res, 500, error.message);
     }
 };
 
