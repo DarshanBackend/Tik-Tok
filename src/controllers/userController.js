@@ -271,10 +271,38 @@ export const deleteUser = async (req, res) => {
             return sendErrorResponse(res, 404, "User not found");
         }
 
-        // Delete profile pic from S3
+        // Collect all S3 keys (profile picture and post images/videos) to delete
+        const s3Keys = [];
+
         if (user.profilePic && user.profilePic.includes('.amazonaws.com/')) {
             const key = user.profilePic.split('.amazonaws.com/')[1];
-            if (key) deleteFromS3(key).catch(err => console.error("Failed to delete user profile pic from S3:", err));
+            if (key) s3Keys.push(key);
+        }
+
+        // Find all user's posts to delete their images and videos from S3
+        const userPosts = await Post.find({ user: userId });
+        for (const post of userPosts) {
+            if (post.image && post.image.includes('.amazonaws.com/')) {
+                const key = post.image.split('.amazonaws.com/')[1];
+                if (key) s3Keys.push(key);
+            }
+            if (post.video && post.video.includes('.amazonaws.com/')) {
+                const key = post.video.split('.amazonaws.com/')[1];
+                if (key) s3Keys.push(key);
+            }
+        }
+
+        // Delete all collected keys from S3 in parallel
+        if (s3Keys.length > 0) {
+            Promise.allSettled(s3Keys.map(key => deleteFromS3(key)))
+                .then(results => {
+                    results.forEach((result, idx) => {
+                        if (result.status === 'rejected') {
+                            console.error(`Failed to delete key ${s3Keys[idx]} from S3:`, result.reason);
+                        }
+                    });
+                })
+                .catch(err => console.error("Error in batch S3 deletion:", err));
         }
 
         // 1. Delete user's posts
