@@ -10,6 +10,8 @@ import { addPrivacyPolicy, deletePrivacyPolicy, getAllPrivacyPolicy, getPrivacyP
 import { addHelpSupport, deleteHelpSupport, getAllHelpSupport, getHelpSupportById, updateHelpSupport } from "../controllers/helpSupportController.js";
 import { addReportCategory, deleteReportCategory, getAllReportCategory, getReportCategoryById, updateReportCategory } from "../controllers/reportCategoryController.js";
 import { addReport, deleteReport, getAllReports, getReportById, getReportByUserId, updateReport, getReportByReportCategoryId } from "../controllers/reportController.js";
+import { addRestrictCategory, deleteRestrictCategory, getAllRestrictCategory, getRestrictCategoryById, updateRestrictCategory } from "../controllers/restrictCategoryController.js";
+import { addRestrict, deleteRestrict, getAllRestricts, getRestrictById, getRestrictByUserId, updateRestrict, getRestrictByRestrictCategoryId } from "../controllers/restrictController.js";
 import { addAudio, deleteAudio, getAllAudio, getAudioByCategoryId, getAudioById, updateAudio } from "../controllers/audioController.js";
 import { addNewPost, commentPost, deleteComment, deletePost, deleteReplyComment, getAllPost, getAudioIdByPosts, getCommentOfPost, getDrafts, getFollowingUsersPosts, getFriendsProfile, getLikedPostsByUser, getLikeOfPost, getPostsByUserId, getSavedPosts, getTaggedPosts, getUserPost, likeComment, publishDraft, removeDraft, replyComment, savePost, toggleBlockUser, toggleLikePost, updateComment, updatePost } from "../controllers/postController.js";
 import { addAudioCategory, deleteAudioCategory, getAllAudioCategory, getAudioCategoryById, updateAudioCategory } from "../controllers/audioCategoryController.js";
@@ -74,6 +76,22 @@ indexRoutes.get("/getReportByUserId/:id", UserAuth, isAdmin, getReportByUserId)
 indexRoutes.get("/getReportByReportCategoryId/:id", UserAuth, getReportByReportCategoryId)
 indexRoutes.put("/updateReport/:id", UserAuth, updateReport)
 indexRoutes.delete("/deleteReport/:id", UserAuth, isAdmin, deleteReport)
+
+//RestrictCategory Routes
+indexRoutes.post("/addRestrictCategory", UserAuth, isAdmin, addRestrictCategory)
+indexRoutes.get("/getAllRestrictCategory", UserAuth, getAllRestrictCategory)
+indexRoutes.get("/getRestrictCategoryById/:id", UserAuth, getRestrictCategoryById)
+indexRoutes.put("/updateRestrictCategory/:id", UserAuth, isAdmin, updateRestrictCategory)
+indexRoutes.delete("/deleteRestrictCategory/:id", UserAuth, isAdmin, deleteRestrictCategory)
+
+//Restrict Routes
+indexRoutes.post("/addRestrict", UserAuth, isUser, addRestrict)
+indexRoutes.get("/getAllRestricts", UserAuth, isAdmin, getAllRestricts)
+indexRoutes.get("/getRestrictById/:id", UserAuth, getRestrictById)
+indexRoutes.get("/getRestrictByUserId/:id", UserAuth, isAdmin, getRestrictByUserId)
+indexRoutes.get("/getRestrictByRestrictCategoryId/:id", UserAuth, getRestrictByRestrictCategoryId)
+indexRoutes.put("/updateRestrict/:id", UserAuth, updateRestrict)
+indexRoutes.delete("/deleteRestrict/:id", UserAuth, isAdmin, deleteRestrict)
 
 //AudioCategory Routes
 indexRoutes.post("/addAudioCategory", UserAuth, isAdmin, addAudioCategory)
