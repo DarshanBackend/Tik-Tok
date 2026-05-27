@@ -140,9 +140,17 @@ export const getAllPost = async (req, res) => {
                 delete postObj.user.followers;
             }
 
+            let isLike = false;
+            if (viewerId && Array.isArray(postObj.likes)) {
+                isLike = postObj.likes.some(
+                    (likeId) => likeId.toString() === viewerId.toString()
+                );
+            }
+
             return {
                 ...postObj,
-                isFollowing
+                isFollowing,
+                isLike
             };
         });
 
