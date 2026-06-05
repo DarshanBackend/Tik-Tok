@@ -643,10 +643,39 @@ export const getLikedPostsByUser = async (req, res) => {
 
         // Get posts liked by the user
         const likedPosts = await Post.find({ _id: { $in: user.liked } })
-            .populate("user", "username profilePic")
+            .populate({ path: "user", select: "profilePic name followers" })
+            .populate({ path: "audioId", select: "audio_name audio_image audio artist_name" })
             .sort({ createdAt: -1 });
 
-        return sendSuccessResponse(res, "Liked posts fetched successfully.", likedPosts);
+        const formattedPosts = likedPosts.map((post) => {
+            const postObj = post.toObject();
+            let isFollowing = false;
+
+            if (userId && postObj.user && Array.isArray(postObj.user.followers)) {
+                isFollowing = postObj.user.followers.some(
+                    (followerId) => followerId.toString() === userId.toString()
+                );
+            }
+
+            if (postObj.user && postObj.user.followers) {
+                delete postObj.user.followers;
+            }
+
+            let isLike = false;
+            if (userId && Array.isArray(postObj.likes)) {
+                isLike = postObj.likes.some(
+                    (likeId) => likeId.toString() === userId.toString()
+                );
+            }
+
+            return {
+                ...postObj,
+                isFollowing,
+                isLike
+            };
+        });
+
+        return sendSuccessResponse(res, "Liked posts fetched successfully.", formattedPosts);
     } catch (error) {
         return sendErrorResponse(res, 500, error.message);
     }
