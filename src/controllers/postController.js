@@ -18,6 +18,7 @@ export const addNewPost = async (req, res) => {
         let taggedFriends = req.body.taggedFriends;
 
         const videoFile = req.files?.post_video?.[0];
+        const thumbnailFile = req.files?.thumbnail?.[0];
         const userId = req.user._id;
 
         // Must contain at least one of caption/image/video
@@ -65,12 +66,14 @@ export const addNewPost = async (req, res) => {
         }
 
         let videoUrl = videoFile ? videoFile.path : '';
+        let thumbnailUrl = thumbnailFile ? thumbnailFile.path : '';
 
         // ✅ Create new post
         const newPost = await Post.create({
             user: userId,
             caption,
             video: videoUrl,
+            thumbnail: thumbnailUrl,
             audioId,
             status: status || 'published',
             taggedFriends,
@@ -319,13 +322,10 @@ export const getAudioIdByPosts = async (req, res) => {
     }
 };
 
-export const updatePost = async (req, res) => {
+export const verifyPostOwnership = async (req, res, next) => {
     try {
         const { postId } = req.params;
-        const { caption, status, allow_comment, isPrivate, saveToDevice } = req.body;
         const userId = req.user._id;
-
-        const videoFile = req.files?.post_video?.[0];
 
         if (!mongoose.Types.ObjectId.isValid(postId)) {
             return sendBadRequestResponse(res, 'Invalid post ID format.');
@@ -335,6 +335,23 @@ export const updatePost = async (req, res) => {
         if (!post) {
             return sendBadRequestResponse(res, 'Post not found or not authorized.');
         }
+
+        req.post = post;
+        next();
+    } catch (error) {
+        console.error("Error in verifyPostOwnership:", error);
+        return sendErrorResponse(res, 500, error.message);
+    }
+};
+
+export const updatePost = async (req, res) => {
+    try {
+        const { caption, status, allow_comment, isPrivate, saveToDevice } = req.body;
+
+        const videoFile = req.files?.post_video?.[0];
+        const thumbnailFile = req.files?.thumbnail?.[0];
+
+        const post = req.post;
 
         // Update caption and status
         if (caption) post.caption = caption;
@@ -352,6 +369,15 @@ export const updatePost = async (req, res) => {
                 if (oldKey) deleteFromS3(oldKey).catch(err => console.error("Failed to delete old video from S3:", err));
             }
             post.video = videoFile.path;
+        }
+
+        // Replace thumbnail if new one uploaded
+        if (thumbnailFile) {
+            if (post.thumbnail && post.thumbnail.includes('.amazonaws.com/')) {
+                const oldKey = post.thumbnail.split('.amazonaws.com/')[1];
+                if (oldKey) deleteFromS3(oldKey).catch(err => console.error("Failed to delete old thumbnail from S3:", err));
+            }
+            post.thumbnail = thumbnailFile.path;
         }
 
         await post.save();
@@ -386,6 +412,10 @@ export const deletePost = async (req, res) => {
         if (post.video && post.video.includes('.amazonaws.com/')) {
             const key = post.video.split('.amazonaws.com/')[1];
             if (key) deleteFromS3(key).catch(err => console.error("Failed to delete post video from S3:", err));
+        }
+        if (post.thumbnail && post.thumbnail.includes('.amazonaws.com/')) {
+            const key = post.thumbnail.split('.amazonaws.com/')[1];
+            if (key) deleteFromS3(key).catch(err => console.error("Failed to delete post thumbnail from S3:", err));
         }
 
         // Delete the post itself
@@ -1067,17 +1097,40 @@ export const removeDraft = async (req, res) => {
         }
 
         if (post.image) {
-            const imagePath = path.join(process.cwd(), post.image);
-            if (fs.existsSync(imagePath)) {
-                try { fs.unlinkSync(imagePath); } catch (err) { console.error("Failed to delete image file:", err); }
+            if (post.image.includes('.amazonaws.com/')) {
+                const key = post.image.split('.amazonaws.com/')[1];
+                if (key) deleteFromS3(key).catch(err => console.error("Failed to delete post image from S3:", err));
+            } else {
+                const imagePath = path.join(process.cwd(), post.image);
+                if (fs.existsSync(imagePath)) {
+                    try { fs.unlinkSync(imagePath); } catch (err) { console.error("Failed to delete image file:", err); }
+                }
             }
         }
 
         // Delete associated video file
         if (post.video) {
-            const videoPath = path.join(process.cwd(), post.video);
-            if (fs.existsSync(videoPath)) {
-                try { fs.unlinkSync(videoPath); } catch (err) { console.error("Failed to delete video file:", err); }
+            if (post.video.includes('.amazonaws.com/')) {
+                const key = post.video.split('.amazonaws.com/')[1];
+                if (key) deleteFromS3(key).catch(err => console.error("Failed to delete post video from S3:", err));
+            } else {
+                const videoPath = path.join(process.cwd(), post.video);
+                if (fs.existsSync(videoPath)) {
+                    try { fs.unlinkSync(videoPath); } catch (err) { console.error("Failed to delete video file:", err); }
+                }
+            }
+        }
+
+        // Delete associated thumbnail file
+        if (post.thumbnail) {
+            if (post.thumbnail.includes('.amazonaws.com/')) {
+                const key = post.thumbnail.split('.amazonaws.com/')[1];
+                if (key) deleteFromS3(key).catch(err => console.error("Failed to delete post thumbnail from S3:", err));
+            } else {
+                const thumbnailPath = path.join(process.cwd(), post.thumbnail);
+                if (fs.existsSync(thumbnailPath)) {
+                    try { fs.unlinkSync(thumbnailPath); } catch (err) { console.error("Failed to delete thumbnail file:", err); }
+                }
             }
         }
 

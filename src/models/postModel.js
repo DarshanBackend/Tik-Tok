@@ -16,6 +16,9 @@ const postSchema = new mongoose.Schema({
     video: {
         type: String,
     },
+    thumbnail: {
+        type: String,
+    },
     audioId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Audio'

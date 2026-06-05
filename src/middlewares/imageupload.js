@@ -19,7 +19,7 @@ const fileFilter = (req, file, cb) => {
         } else {
             cb(new Error('File for "audio" field must be an audio file.'), false);
         }
-    } else if (file.fieldname === 'audio_image' || file.fieldname === 'profilePic' || file.fieldname === 'post_image') {
+    } else if (file.fieldname === 'audio_image' || file.fieldname === 'profilePic' || file.fieldname === 'post_image' || file.fieldname === 'thumbnail') {
         if (isImage || isOctetStream || isJfifExt) {
             cb(null, true);
         } else {
@@ -86,6 +86,7 @@ const uploadToS3Middleware = async (req, res, next) => {
                     else if (fieldName === "audio") folder = "audios";
                     else if (fieldName === "audio_image") folder = "audio_images";
                     else if (fieldName === "post_image") folder = "post_images";
+                    else if (fieldName === "thumbnail") folder = "post_thumbnails";
                     else if (fieldName === "post_video") folder = "post_videos";
 
                     const promise = (async () => {
@@ -94,11 +95,12 @@ const uploadToS3Middleware = async (req, res, next) => {
                         let originalname = file.originalname;
 
                         // Image processing
-                        const isImageField = ['profilePic', 'audio_image', 'post_image'].includes(fieldName);
+                        const isImageField = ['profilePic', 'audio_image', 'post_image', 'thumbnail'].includes(fieldName);
                         if (isImageField) {
                             let resizeOptions = {};
                             if (fieldName === 'profilePic') resizeOptions = { width: 400, height: 400 };
                             else if (fieldName === 'post_image') resizeOptions = { width: 1024, height: 1024 };
+                            else if (fieldName === 'thumbnail') resizeOptions = { width: 1024, height: 1024 };
                             else if (fieldName === 'audio_image') resizeOptions = { width: 500, height: 500 };
 
                             buffer = await resizeImage(buffer, resizeOptions);

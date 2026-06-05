@@ -13,7 +13,7 @@ import { addReport, deleteReport, getAllReports, getReportById, getReportByUserI
 import { addRestrictCategory, deleteRestrictCategory, getAllRestrictCategory, getRestrictCategoryById, updateRestrictCategory } from "../controllers/restrictCategoryController.js";
 import { addRestrict, deleteRestrict, getAllRestricts, getRestrictById, getRestrictByUserId, updateRestrict, getRestrictByRestrictCategoryId } from "../controllers/restrictController.js";
 import { addAudio, deleteAudio, getAllAudio, getAudioByCategoryId, getAudioById, updateAudio } from "../controllers/audioController.js";
-import { addNewPost, commentPost, deleteComment, deletePost, deleteReplyComment, getAllPost, getAudioIdByPosts, getCommentOfPost, getDrafts, getFollowingUsersPosts, getFriendsProfile, getLikedPostsByUser, getLikeOfPost, getPostsByUserId, getSavedPosts, getTaggedPosts, getUserPost, likeComment, publishDraft, removeDraft, replyComment, savePost, toggleBlockUser, toggleLikePost, updateComment, updatePost } from "../controllers/postController.js";
+import { addNewPost, commentPost, deleteComment, deletePost, deleteReplyComment, getAllPost, getAudioIdByPosts, getCommentOfPost, getDrafts, getFollowingUsersPosts, getFriendsProfile, getLikedPostsByUser, getLikeOfPost, getPostsByUserId, getSavedPosts, getTaggedPosts, getUserPost, likeComment, publishDraft, removeDraft, replyComment, savePost, toggleBlockUser, toggleLikePost, updateComment, updatePost, verifyPostOwnership } from "../controllers/postController.js";
 import { addAudioCategory, deleteAudioCategory, getAllAudioCategory, getAudioCategoryById, updateAudioCategory } from "../controllers/audioCategoryController.js";
 
 
@@ -109,14 +109,14 @@ indexRoutes.put("/updateAudio/:id", UserAuth, isAdmin, upload.fields([{ name: 'a
 indexRoutes.delete("/deleteAudio/:id", UserAuth, isAdmin, deleteAudio)
 
 //post Routes
-indexRoutes.post("/addNewPost", UserAuth, isUser, upload.fields([{ name: 'post_video', maxCount: 1 }]), uploadToS3Middleware, addNewPost)
+indexRoutes.post("/addNewPost", UserAuth, isUser, upload.fields([{ name: 'post_video', maxCount: 1 }, { name: 'thumbnail', maxCount: 1 }]), uploadToS3Middleware, addNewPost)
 indexRoutes.get("/getAllPost", getAllPost)
 indexRoutes.get("/getPostsByUserId/:userId", UserAuth, getPostsByUserId)
 indexRoutes.get("/getUserPost", UserAuth, getUserPost)
 indexRoutes.get("/getFriendsProfile", UserAuth, getFriendsProfile)
 indexRoutes.get("/getFollowingUsersPosts", UserAuth, getFollowingUsersPosts)
 indexRoutes.get("/getAudioIdByPosts/:audioId", UserAuth, getAudioIdByPosts)
-indexRoutes.put("/updatePost/:postId", UserAuth, isUser, upload.fields([{ name: 'post_video', maxCount: 1 }]), uploadToS3Middleware, updatePost)
+indexRoutes.put("/updatePost/:postId", UserAuth, isUser, verifyPostOwnership, upload.fields([{ name: 'post_video', maxCount: 1 }, { name: 'thumbnail', maxCount: 1 }]), uploadToS3Middleware, updatePost)
 indexRoutes.delete("/deletePost/:postId", UserAuth, deletePost)
 indexRoutes.post("/savePost/:id", UserAuth, savePost)
 indexRoutes.get("/getSavedPosts", UserAuth, getSavedPosts)
