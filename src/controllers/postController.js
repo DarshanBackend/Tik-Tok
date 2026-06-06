@@ -199,9 +199,38 @@ export const getPostsByUserId = async (req, res) => {
 
         const posts = await Post.find(postQuery)
             .sort({ createdAt: -1 })
-            .populate("user", "username profilePic");
+            .populate({ path: "user", select: "profilePic name followers" })
+            .populate({ path: "audioId", select: "audio_name audio_image audio artist_name" });
 
-        return sendSuccessResponse(res, "Posts fetched successfully.", posts);
+        const formattedPosts = posts.map((post) => {
+            const postObj = post.toObject();
+            let isFollowing = false;
+
+            if (viewerId && postObj.user && Array.isArray(postObj.user.followers)) {
+                isFollowing = postObj.user.followers.some(
+                    (followerId) => followerId.toString() === viewerId.toString()
+                );
+            }
+
+            if (postObj.user && postObj.user.followers) {
+                delete postObj.user.followers;
+            }
+
+            let isLike = false;
+            if (viewerId && Array.isArray(postObj.likes)) {
+                isLike = postObj.likes.some(
+                    (likeId) => likeId.toString() === viewerId.toString()
+                );
+            }
+
+            return {
+                ...postObj,
+                isFollowing,
+                isLike
+            };
+        });
+
+        return sendSuccessResponse(res, "Posts fetched successfully.", formattedPosts);
     } catch (err) {
         console.error("Error fetching user posts:", err);
         return sendErrorResponse(res, 500, err.message);
