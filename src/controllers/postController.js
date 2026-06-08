@@ -117,10 +117,25 @@ export const getAllPost = async (req, res) => {
             }
         }
 
-        const posts = await Post.find({
+        let query = {
             isPrivate: false,
             status: "published",
-        })
+        };
+
+        if (viewerId) {
+            const viewer = await User.findById(viewerId).select("notInterested hidden");
+            if (viewer) {
+                const excludedPostIds = [];
+                if (viewer.notInterested) excludedPostIds.push(...viewer.notInterested);
+                if (viewer.hidden) excludedPostIds.push(...viewer.hidden);
+
+                if (excludedPostIds.length > 0) {
+                    query._id = { $nin: excludedPostIds };
+                }
+            }
+        }
+
+        const posts = await Post.find(query)
             .sort({ createdAt: -1 })
             .populate({ path: "user", select: "profilePic name followers" })
             .populate({ path: "audioId", select: "audio_name audio_image audio artist_name" });
@@ -299,8 +314,13 @@ export const getFollowingUsersPosts = async (req, res) => {
 
         const blockedByUsers = await User.find({ blockedUsers: loggedInUserId }).distinct("_id");
 
+        const excludedPostIds = [];
+        if (user.notInterested) excludedPostIds.push(...user.notInterested);
+        if (user.hidden) excludedPostIds.push(...user.hidden);
+
         const posts = await Post.find({
             user: { $in: user.followings, $nin: blockedByUsers },
+            _id: { $nin: excludedPostIds }
         })
             .populate("user", "username profilePic fullname")
             .sort({ createdAt: -1 });
@@ -576,6 +596,122 @@ export const getSavedPosts = async (req, res) => {
         return ThrowError(res, 500, error.message)
     }
 }
+
+export const toggleNotInterestedPost = async (req, res) => {
+    try {
+        const postId = req.params.id;
+        const userId = req.user._id;
+
+        if (!mongoose.Types.ObjectId.isValid(postId)) {
+            return sendBadRequestResponse(res, "Invalid postId..");
+        }
+
+        const post = await Post.findById(postId);
+        if (!post) {
+            return sendNotFoundResponse(res, "Post not found!!!");
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return sendNotFoundResponse(res, "User not found!!!");
+        }
+
+        const isNotInterested = user.notInterested && user.notInterested.some(id => id.toString() === post._id.toString());
+
+        if (isNotInterested) {
+            user.notInterested.pull(post._id);
+            await user.save();
+            return res.status(200).json({
+                type: "interested",
+                message: "Post removed from Not Interested list",
+                success: true
+            });
+        } else {
+            user.notInterested.addToSet(post._id);
+            await user.save();
+            return res.status(200).json({
+                type: "not_interested",
+                message: "Post marked as Not Interested",
+                success: true
+            });
+        }
+    } catch (error) {
+        return ThrowError(res, 500, error.message);
+    }
+};
+
+export const toggleHidePost = async (req, res) => {
+    try {
+        const postId = req.params.id;
+        const userId = req.user._id;
+
+        if (!mongoose.Types.ObjectId.isValid(postId)) {
+            return sendBadRequestResponse(res, "Invalid postId..");
+        }
+
+        const post = await Post.findById(postId);
+        if (!post) {
+            return sendNotFoundResponse(res, "Post not found!!!");
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return sendNotFoundResponse(res, "User not found!!!");
+        }
+
+        const isHidden = user.hidden && user.hidden.some(id => id.toString() === post._id.toString());
+
+        if (isHidden) {
+            user.hidden.pull(post._id);
+            await user.save();
+            return res.status(200).json({
+                type: "unhidden",
+                message: "Post removed from hidden list",
+                success: true
+            });
+        } else {
+            user.hidden.addToSet(post._id);
+            await user.save();
+            return res.status(200).json({
+                type: "hidden",
+                message: "Post hidden successfully",
+                success: true
+            });
+        }
+    } catch (error) {
+        return ThrowError(res, 500, error.message);
+    }
+};
+
+export const getHiddenPosts = async (req, res) => {
+    try {
+        const userId = req.user._id;
+
+        const user = await User.findById(userId).populate({
+            path: 'hidden',
+            match: { status: 'published' },
+            populate: {
+                path: 'user',
+                select: 'username profilePic'
+            }
+        });
+
+        if (!user) {
+            return sendNotFoundResponse(res, "User not found...");
+        }
+
+        const hiddenPosts = user.hidden.filter(post => post !== null);
+
+        if (hiddenPosts.length === 0) {
+            return sendSuccessResponse(res, "You have not hidden any posts yet...", []);
+        }
+
+        return sendSuccessResponse(res, "Hidden posts fetched successfully...", hiddenPosts);
+
+    } catch (error) {
+        return ThrowError(res, 500, error.message);
+    }
+};
 
 
 

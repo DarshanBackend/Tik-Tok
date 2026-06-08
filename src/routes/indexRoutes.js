@@ -13,7 +13,7 @@ import { addReport, deleteReport, getAllReports, getReportById, getReportByUserI
 import { addRestrictCategory, deleteRestrictCategory, getAllRestrictCategory, getRestrictCategoryById, updateRestrictCategory } from "../controllers/restrictCategoryController.js";
 import { addRestrict, deleteRestrict, getAllRestricts, getRestrictById, getRestrictByUserId, updateRestrict, getRestrictByRestrictCategoryId } from "../controllers/restrictController.js";
 import { addAudio, deleteAudio, getAllAudio, getAudioByCategoryId, getAudioById, updateAudio } from "../controllers/audioController.js";
-import { addNewPost, commentPost, deleteComment, deletePost, deleteReplyComment, getAllPost, getAudioIdByPosts, getCommentOfPost, getDrafts, getFollowingUsersPosts, getFriendsProfile, getLikedPostsByUser, getLikeOfPost, getPostsByUserId, getSavedPosts, getTaggedPosts, getUserPost, likeComment, publishDraft, removeDraft, replyComment, savePost, toggleBlockUser, toggleLikePost, updateComment, updatePost, verifyPostOwnership } from "../controllers/postController.js";
+import { addNewPost, commentPost, deleteComment, deletePost, deleteReplyComment, getAllPost, getAudioIdByPosts, getCommentOfPost, getDrafts, getFollowingUsersPosts, getFriendsProfile, getLikedPostsByUser, getLikeOfPost, getPostsByUserId, getSavedPosts, getTaggedPosts, getUserPost, likeComment, publishDraft, removeDraft, replyComment, savePost, toggleBlockUser, toggleLikePost, updateComment, updatePost, verifyPostOwnership, toggleNotInterestedPost, toggleHidePost, getHiddenPosts } from "../controllers/postController.js";
 import { addAudioCategory, deleteAudioCategory, getAllAudioCategory, getAudioCategoryById, updateAudioCategory } from "../controllers/audioCategoryController.js";
 
 
@@ -120,6 +120,9 @@ indexRoutes.put("/updatePost/:postId", UserAuth, isUser, verifyPostOwnership, up
 indexRoutes.delete("/deletePost/:postId", UserAuth, deletePost)
 indexRoutes.post("/savePost/:id", UserAuth, savePost)
 indexRoutes.get("/getSavedPosts", UserAuth, getSavedPosts)
+indexRoutes.post("/notInterestedPost/:id", UserAuth, toggleNotInterestedPost)
+indexRoutes.post("/hidePost/:id", UserAuth, toggleHidePost)
+indexRoutes.get("/getHidePost", UserAuth, getHiddenPosts)
 
 indexRoutes.get("/searchUsers", UserAuth, searchUsers)
 indexRoutes.get("/suggestedUsers", UserAuth, isUser, suggestedUsers)

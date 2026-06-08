@@ -23,6 +23,8 @@ const userSchema = new mongoose.Schema(
         liked: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
         saved: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
         comments: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
+        notInterested: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
+        hidden: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
 
         joinedAt: { type: Date, default: Date.now },
 
