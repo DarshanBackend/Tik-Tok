@@ -15,6 +15,8 @@ import { addRestrict, deleteRestrict, getAllRestricts, getRestrictById, getRestr
 import { addAudio, deleteAudio, getAllAudio, getAudioByCategoryId, getAudioById, updateAudio } from "../controllers/audioController.js";
 import { addNewPost, commentPost, deleteComment, deletePost, deleteReplyComment, getAllPost, getAudioIdByPosts, getCommentOfPost, getDrafts, getFollowingUsersPosts, getFriendsProfile, getLikedPostsByUser, getLikeOfPost, getPostsByUserId, getSavedPosts, getTaggedPosts, getUserPost, likeComment, publishDraft, removeDraft, replyComment, savePost, toggleBlockUser, toggleLikePost, updateComment, updatePost, verifyPostOwnership, toggleNotInterestedPost, toggleHidePost, getHiddenPosts } from "../controllers/postController.js";
 import { addAudioCategory, deleteAudioCategory, getAllAudioCategory, getAudioCategoryById, updateAudioCategory } from "../controllers/audioCategoryController.js";
+import { addPostReportCategory, deletePostReportCategory, getAllPostReportCategory, getPostReportCategoryById, updatePostReportCategory } from "../controllers/postReportCategoryController.js";
+import { addPostReport, getAllPostReports, getPostReportById, getPostReportsByPostId, deletePostReport } from "../controllers/postReportController.js";
 
 
 const indexRoutes = express.Router()
@@ -148,6 +150,21 @@ indexRoutes.get("/getCommentOfPost/:id", UserAuth, getCommentOfPost)
 indexRoutes.post("/likeComment/:commentId", UserAuth, likeComment)
 indexRoutes.put("/updateComment/:commentId", UserAuth, updateComment)
 indexRoutes.delete("/deleteComment/:commentId", UserAuth, deleteComment)
+
+//postReportCategory
+indexRoutes.post("/addPostReportCategory", UserAuth, isAdmin, addPostReportCategory)
+indexRoutes.get("/getAllPostReportCategory", UserAuth, getAllPostReportCategory)
+indexRoutes.get("/getPostReportCategoryById/:id", UserAuth, getPostReportCategoryById)
+indexRoutes.put("/updatePostReportCategory/:id", UserAuth, isAdmin, updatePostReportCategory)
+indexRoutes.delete("/deletePostReportCategory/:id", UserAuth, isAdmin, deletePostReportCategory)
+
+//postReport
+indexRoutes.post("/addPostReport", UserAuth, isUser, addPostReport)
+indexRoutes.get("/getAllPostReports", UserAuth, isAdmin, getAllPostReports)
+indexRoutes.get("/getPostReportById/:id", UserAuth, getPostReportById)
+indexRoutes.get("/getPostReportsByPostId/:postId", UserAuth, getPostReportsByPostId)
+indexRoutes.delete("/deletePostReport/:id", UserAuth, isAdmin, deletePostReport)
+
 
 
 indexRoutes.get("/s3/list", async (req, res) => {
