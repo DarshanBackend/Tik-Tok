@@ -758,3 +758,70 @@ export const getFollowingList = async (req, res) => {
     }
 };
 
+export const searchFollowersAndFollowing = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const { query, type = 'both' } = req.query;
+
+        if (!query) {
+            return sendBadRequestResponse(res, "Query is required");
+        }
+
+        const user = await User.findById(userId).select('followers followings');
+        if (!user) {
+            return sendNotFoundResponse(res, "User not found");
+        }
+
+        const myFollowingIds = user.followings.map(id => id.toString());
+
+        let followers = [];
+        let following = [];
+
+        if (type === 'followers' || type === 'both') {
+            const matchingFollowers = await User.find({
+                _id: { $in: user.followers },
+                $or: [
+                    { username: { $regex: query, $options: "i" } },
+                    { name: { $regex: query, $options: "i" } }
+                ]
+            }).select('name username profilePic');
+
+            followers = matchingFollowers.map(follower => {
+                const followerObj = follower.toObject();
+                return {
+                    ...followerObj,
+                    profilePic: followerObj.profilePic || "https://avatar.iran.liara.run/public",
+                    isFollowing: myFollowingIds.includes(follower._id.toString())
+                };
+            });
+        }
+
+        if (type === 'following' || type === 'both') {
+            const matchingFollowing = await User.find({
+                _id: { $in: user.followings },
+                $or: [
+                    { username: { $regex: query, $options: "i" } },
+                    { name: { $regex: query, $options: "i" } }
+                ]
+            }).select('name username profilePic');
+
+            following = matchingFollowing.map(followedUser => {
+                const followedObj = followedUser.toObject();
+                return {
+                    ...followedObj,
+                    profilePic: followedObj.profilePic || "https://avatar.iran.liara.run/public",
+                    isFollowing: true
+                };
+            });
+        }
+
+        return sendSuccessResponse(res, "Search results retrieved successfully", {
+            followers,
+            following
+        });
+    } catch (error) {
+        return sendErrorResponse(res, 500, error.message);
+    }
+};
+
+

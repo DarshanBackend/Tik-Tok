@@ -3,7 +3,7 @@ import { upload, convertJfifToJpeg, uploadToS3Middleware } from "../middlewares/
 import { listAllS3Images, deleteFromS3 } from "../utils/uploadS3.js";
 import { sendSuccessResponse, sendErrorResponse, sendBadRequestResponse } from "../utils/ResponseUtils.js";
 import { isAdmin, isUser, UserAuth } from "../middlewares/auth.js";
-import { deleteUser, editProfile, editUser, followOrUnfollow, getAllUsers, getUserById, register, searchUsers, suggestedUsers, getUserProfile, getFollowersList, getFollowingList, getFollowRequests, acceptFollowRequest, rejectFollowRequest } from "../controllers/userController.js";
+import { deleteUser, editProfile, editUser, followOrUnfollow, getAllUsers, getUserById, register, searchUsers, suggestedUsers, getUserProfile, getFollowersList, getFollowingList, getFollowRequests, acceptFollowRequest, rejectFollowRequest, searchFollowersAndFollowing } from "../controllers/userController.js";
 import { changePassword, forgotPassword, googleAuth, resetPassword, userLogin, VerifyOtp, VerifyPhone } from "../controllers/loginController.js";
 import { addTermsOfServices, deleteTermsOfServices, getAllTermsOfServices, getTermsOfServicesById, updateTermsOfServices } from "../controllers/termsOfServicesController.js";
 import { addPrivacyPolicy, deletePrivacyPolicy, getAllPrivacyPolicy, getPrivacyPolicyById, updatePrivacyPolicy } from "../controllers/privacyPolicyController.js";
@@ -127,6 +127,7 @@ indexRoutes.post("/hidePost/:id", UserAuth, toggleHidePost)
 indexRoutes.get("/getHidePost", UserAuth, getHiddenPosts)
 
 indexRoutes.get("/searchUsers", UserAuth, searchUsers)
+indexRoutes.get("/searchFollowersAndFollowing", UserAuth, isUser, searchFollowersAndFollowing)
 indexRoutes.get("/suggestedUsers", UserAuth, isUser, suggestedUsers)
 indexRoutes.post("/followOrUnfollow/:id", UserAuth, isUser, followOrUnfollow)
 indexRoutes.get("/getFollowRequests", UserAuth, isUser, getFollowRequests)
