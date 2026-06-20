@@ -22,6 +22,7 @@ const userSchema = new mongoose.Schema(
         posts: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
         liked: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
         saved: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
+        savedAudios: [{ type: mongoose.Schema.Types.ObjectId, ref: "Audio" }],
         comments: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
         notInterested: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
         hidden: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],

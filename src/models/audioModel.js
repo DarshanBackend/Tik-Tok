@@ -16,6 +16,10 @@ const audioSchema = mongoose.Schema({
     audioCategoryId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "AudioCategory"
+    },
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
     }
 }, { timestamps: true })
 

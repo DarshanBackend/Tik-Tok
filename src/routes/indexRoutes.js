@@ -12,7 +12,7 @@ import { addReportCategory, deleteReportCategory, getAllReportCategory, getRepor
 import { addReport, deleteReport, getAllReports, getReportById, getReportByUserId, updateReport, getReportByReportCategoryId } from "../controllers/reportController.js";
 import { addRestrictCategory, deleteRestrictCategory, getAllRestrictCategory, getRestrictCategoryById, updateRestrictCategory } from "../controllers/restrictCategoryController.js";
 import { addRestrict, deleteRestrict, getAllRestricts, getRestrictById, getRestrictByUserId, updateRestrict, getRestrictByRestrictCategoryId } from "../controllers/restrictController.js";
-import { addAudio, deleteAudio, getAllAudio, getAudioByCategoryId, getAudioById, updateAudio } from "../controllers/audioController.js";
+import { addAudio, deleteAudio, getAllAudio, getAudioByCategoryId, getAudioById, updateAudio, toggleSaveAudio, getSavedAudios, getTrendingAudios, importAudio, getOriginalAudios, deleteOriginalAudio } from "../controllers/audioController.js";
 import { addNewPost, commentPost, deleteComment, deletePost, deleteReplyComment, getAllPost, getAudioIdByPosts, getCommentOfPost, getDrafts, getFollowingUsersPosts, getFriendsProfile, getLikedPostsByUser, getLikeOfPost, getPostsByUserId, getSavedPosts, getTaggedPosts, getUserPost, likeComment, publishDraft, removeDraft, replyComment, savePost, toggleBlockUser, toggleLikePost, updateComment, updatePost, verifyPostOwnership, toggleNotInterestedPost, toggleHidePost, getHiddenPosts } from "../controllers/postController.js";
 import { addAudioCategory, deleteAudioCategory, getAllAudioCategory, getAudioCategoryById, updateAudioCategory } from "../controllers/audioCategoryController.js";
 import { addPostReportCategory, deletePostReportCategory, getAllPostReportCategory, getPostReportCategoryById, updatePostReportCategory } from "../controllers/postReportCategoryController.js";
@@ -107,6 +107,12 @@ indexRoutes.post("/addAudio", UserAuth, isAdmin, upload.fields([{ name: 'audio',
 indexRoutes.get("/getAllAudio", UserAuth, getAllAudio)
 indexRoutes.get("/getAudioById/:id", UserAuth, getAudioById)
 indexRoutes.get("/getAudioByCategoryId/:id", UserAuth, getAudioByCategoryId)
+indexRoutes.post("/toggleSaveAudio/:id", UserAuth, toggleSaveAudio)
+indexRoutes.get("/getSavedAudios", UserAuth, getSavedAudios)
+indexRoutes.get("/getTrendingAudios", UserAuth, getTrendingAudios)
+indexRoutes.post("/addOriginalAudio", UserAuth, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'audio_image', maxCount: 1 }]), uploadToS3Middleware, importAudio)
+indexRoutes.get("/getOriginalAudios", UserAuth, getOriginalAudios)
+indexRoutes.delete("/deleteOriginalAudio/:id", UserAuth, deleteOriginalAudio)
 indexRoutes.put("/updateAudio/:id", UserAuth, isAdmin, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'audio_image', maxCount: 1 }]), uploadToS3Middleware, updateAudio)
 indexRoutes.delete("/deleteAudio/:id", UserAuth, isAdmin, deleteAudio)
 
