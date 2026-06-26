@@ -6,11 +6,12 @@ import { uploadToS3, resizeImage } from '../utils/uploadS3.js';
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-    const isAudio = file.mimetype.startsWith('audio/');
+    const ext = path.extname(file.originalname).toLowerCase();
+    const audioExtensions = ['.mp3', '.m4a', '.wav', '.aac', '.ogg', '.oga', '.mpga', '.wma', '.flac', '.amr', '.m4p'];
+    const isAudio = file.mimetype.startsWith('audio/') || audioExtensions.includes(ext);
     const isImage = file.mimetype.startsWith('image/');
     const isVideo = file.mimetype.startsWith('video/');
     const isOctetStream = file.mimetype === 'application/octet-stream';
-    const ext = path.extname(file.originalname).toLowerCase();
     const isJfifExt = ext === '.jfif';
 
     if (file.fieldname === 'audio') {

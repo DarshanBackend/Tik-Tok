@@ -517,3 +517,133 @@ export const deleteOriginalAudio = async (req, res) => {
         return ThrowError(res, 500, error.message);
     }
 };
+
+// Get Audio by Reels
+export const getAudioByReels = async (req, res) => {
+    try {
+        const { audioId } = req.params;
+        const viewerId = req.user._id;
+
+        if (!mongoose.Types.ObjectId.isValid(audioId)) {
+            return sendBadRequestResponse(res, "Invalid audioId");
+        }
+
+        const blockedByUsers = await User.find({ blockedUsers: viewerId }).distinct("_id");
+
+        const posts = await Post.find({
+            audioId: audioId,
+            user: { $nin: blockedByUsers },
+            status: "published",
+        })
+            .sort({ createdAt: -1 })
+            .populate({ path: "user", select: "profilePic name followers username" })
+            .populate({ path: "audioId", select: "audio_name audio_image audio artist_name" });
+
+        if (!posts || posts.length === 0) {
+            return sendSuccessResponse(res, "No posts found with this audio", []);
+        }
+
+        const formattedPosts = posts.map((post) => {
+            const postObj = post.toObject();
+            let isFollowing = false;
+
+            if (viewerId && postObj.user && Array.isArray(postObj.user.followers)) {
+                isFollowing = postObj.user.followers.some(
+                    (followerId) => followerId.toString() === viewerId.toString()
+                );
+            }
+
+            if (postObj.user && postObj.user.followers) {
+                delete postObj.user.followers;
+            }
+
+            let isLike = false;
+            if (viewerId && Array.isArray(postObj.likes)) {
+                isLike = postObj.likes.some(
+                    (likeId) => likeId.toString() === viewerId.toString()
+                );
+            }
+
+            return {
+                ...postObj,
+                isFollowing,
+                isLike
+            };
+        });
+
+        return sendSuccessResponse(res, "Posts fetched successfully by audio ID", formattedPosts);
+    } catch (error) {
+        return ThrowError(res, 500, error.message);
+    }
+};
+
+// Update custom/original audio uploaded by a specific user
+export const updateAudioForUser = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user._id;
+
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return sendBadRequestResponse(res, "Invalid Audio Id");
+        }
+
+        let audio = await Audio.findById(id);
+        if (!audio) {
+            return sendNotFoundResponse(res, "Audio not found");
+        }
+
+        // Validate Ownership
+        const userDoc = await User.findById(userId);
+        const isOwner = (audio.userId && audio.userId.toString() === userId.toString()) ||
+            (!audio.userId && userDoc && audio.artist_name.includes(userDoc.name));
+        const isAdmin = req.user.isAdmin || req.user.role === 'admin';
+
+        if (!isAdmin && !isOwner) {
+            return sendForbiddenResponse(res, "You are not authorized to update this audio.");
+        }
+
+        if (req.body.audioCategoryId) {
+            if (!mongoose.Types.ObjectId.isValid(req.body.audioCategoryId)) {
+                return sendBadRequestResponse(res, "Invalid audioCategory Id");
+            }
+            const category = await AudioCategory.findById(req.body.audioCategoryId);
+            if (!category) {
+                return sendBadRequestResponse(res, 'Audio category not found.');
+            }
+        }
+
+        const updateData = { ...req.body };
+
+        // Ensure artist_name remains an array in schema
+        if (req.body.artist_name) {
+            updateData.artist_name = Array.isArray(req.body.artist_name)
+                ? req.body.artist_name
+                : [req.body.artist_name];
+        }
+
+        if (req.files) {
+            if (req.files.audio_image) {
+                if (audio.audio_image && audio.audio_image.includes('.amazonaws.com/')) {
+                    const oldKey = audio.audio_image.split('.amazonaws.com/')[1];
+                    if (oldKey) deleteFromS3(oldKey).catch(err => console.error("Failed to delete old audio image from S3:", err));
+                }
+                const imageFile = req.files.audio_image[0];
+                updateData.audio_image = imageFile.path;
+            }
+
+            if (req.files.audio) {
+                if (audio.audio && audio.audio.includes('.amazonaws.com/')) {
+                    const oldKey = audio.audio.split('.amazonaws.com/')[1];
+                    if (oldKey) deleteFromS3(oldKey).catch(err => console.error("Failed to delete old audio file from S3:", err));
+                }
+                const audioFile = req.files.audio[0];
+                updateData.audio = audioFile.path;
+            }
+        }
+
+        const updatedAudio = await Audio.findByIdAndUpdate(id, updateData, { new: true });
+        return sendSuccessResponse(res, "Audio Updated Successfully...", updatedAudio);
+    } catch (error) {
+        return ThrowError(res, 500, error.message);
+    }
+};
