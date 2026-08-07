@@ -1,5 +1,5 @@
 import User from "../models/userModel.js";
-import { generateOTP, phoneNoOtp, sendOtpEmail } from "./loginController.js";
+import { generateOTP, phoneNoOtp, sendOtpEmail, normalizeContactNo } from "./loginController.js";
 import { ThrowError } from "../utils/ErrorUtils.js"
 import mongoose from "mongoose"
 import bcrypt from "bcryptjs";
@@ -17,14 +17,15 @@ export const register = async (req, res) => {
         const { contactNo, mobileNo, email, password, name, role, profilePic } = req.body;
 
         const finalContactNo = contactNo || mobileNo;
+        const normalizedContact = finalContactNo ? normalizeContactNo(finalContactNo) : null;
 
-        if (!finalContactNo && !email) {
+        if (!normalizedContact && !email) {
             return sendBadRequestResponse(res, "Mobile number or Email is required.");
         }
 
         // Check for contactNo uniqueness if provided
-        if (finalContactNo) {
-            const userByContact = await User.findOne({ contactNo: finalContactNo });
+        if (normalizedContact) {
+            const userByContact = await User.findOne({ contactNo: normalizedContact });
             if (userByContact) {
                 return sendBadRequestResponse(res, "Mobile number already taken");
             }
@@ -46,11 +47,11 @@ export const register = async (req, res) => {
         let otp = null;
         let otpExpiry = null;
 
-        if (finalContactNo || email) {
+        if (normalizedContact || email) {
             otp = generateOTP();
             otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes for email consistency
-            if (finalContactNo) {
-                await phoneNoOtp(finalContactNo, otp);
+            if (normalizedContact) {
+                await phoneNoOtp(normalizedContact, otp);
             }
             if (email) {
                 await sendOtpEmail(email, otp);
@@ -60,7 +61,7 @@ export const register = async (req, res) => {
         const data = await User.create({
             name,
             email,
-            contactNo: finalContactNo,
+            contactNo: normalizedContact,
             password: hashedPass,
             profilePic: profilePic || null,
             role: role || 'user',
@@ -68,15 +69,15 @@ export const register = async (req, res) => {
             otpExpiry
         });
 
-        if (finalContactNo || email) {
-            const message = finalContactNo && email
+        if (normalizedContact || email) {
+            const message = normalizedContact && email
                 ? "OTP sent to mobile number and email. Please verify to complete registration."
-                : finalContactNo
+                : normalizedContact
                     ? "OTP sent to mobile number. Please verify to complete registration."
                     : "OTP sent to email. Please verify to complete registration.";
 
             return sendCreatedResponse(res, message, {
-                contactNo: finalContactNo,
+                contactNo: normalizedContact,
                 email: email
             });
         }

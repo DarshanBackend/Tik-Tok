@@ -9,20 +9,30 @@ import twilio from 'twilio';
 
 export const generateOTP = () => Math.floor(1000 + Math.random() * 9000).toString();
 
-export const phoneNoOtp = async (contactNo, otp) => {
-    let formattedContactNo = contactNo.toString().replace(/\D/g, '');
-    if (formattedContactNo.length === 10) {
-        formattedContactNo = `+91${formattedContactNo}`;
-    } else if (formattedContactNo.length === 12 && formattedContactNo.startsWith('91')) {
-        formattedContactNo = `+${formattedContactNo}`;
-    } else {
-        return ThrowError(res, 400, "Invalid contactNo format. Please provide a valid 10-digit Indian contactNo.");
+export const normalizeContactNo = (contactNo) => {
+    if (!contactNo) return null;
+    let digits = contactNo.toString().replace(/\D/g, '');
+    if (digits.length === 10) {
+        digits = `91${digits}`;
     }
+    return Number(digits);
+};
+
+export const phoneNoOtp = async (contactNo, otp) => {
+    const normalized = normalizeContactNo(contactNo);
+    if (!normalized) {
+        console.log("phoneNoOtp error: Invalid contactNo");
+        return;
+    }
+    const formattedContactNo = `+${normalized}`;
+    console.log(`Sending OTP to: ${formattedContactNo}`);
+
     // Twilio
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
     const fromPhone = process.env.TWILIO_PHONE_NUMBER;
     if (!accountSid || !authToken || !fromPhone) {
+        console.log("Missing Twilio configuration credentials.");
     }
     const client = twilio(accountSid, authToken);
     try {
@@ -35,6 +45,7 @@ export const phoneNoOtp = async (contactNo, otp) => {
         console.log(`SMS sending failed: ${twilioError.message}`);
     }
 }
+
 
 // Utility to send OTP to email
 export const sendOtpEmail = async (email, otp) => {
@@ -84,8 +95,9 @@ export const userLogin = async (req, res) => {
 
         // 1. Contact Number Login (OTP)
         if (contactNo && !email && !password) {
+            const normalized = normalizeContactNo(contactNo);
             // Check if user exists with this contactNo
-            const user = await User.findOne({ contactNo });
+            const user = await User.findOne({ contactNo: normalized });
             if (!user) {
                 return sendErrorResponse(res, 404, "User not found with this contact number");
             }
@@ -101,7 +113,7 @@ export const userLogin = async (req, res) => {
             let sentTo = ["contact number"];
 
             // Send OTP to contactNo
-            await phoneNoOtp(contactNo, otp);
+            await phoneNoOtp(normalized, otp);
 
             // Send to Email if user has one
             if (user.email) {
@@ -110,7 +122,7 @@ export const userLogin = async (req, res) => {
             }
 
             return sendSuccessResponse(res, `OTP sent to ${sentTo.join(" and ")}`, {
-                contactNo,
+                contactNo: normalized,
                 email: user.email
             });
         }
@@ -165,11 +177,10 @@ export const VerifyPhone = async (req, res) => {
             return sendBadRequestResponse(res, "Please provide (contactNo or email) and OTP.");
         }
 
+        const normalized = contactNo ? normalizeContactNo(contactNo) : null;
         const user = await User.findOne({
             $or: [
-                contactNo ? { contactNo: contactNo } : null,
-                contactNo ? { contactNo: '+91' + contactNo } : null,
-                contactNo ? { contactNo: Number(contactNo) } : null,
+                normalized ? { contactNo: normalized } : null,
                 email ? { email: email.toLowerCase() } : null
             ].filter(Boolean)
         });
@@ -216,10 +227,12 @@ export const forgotPassword = async (req, res) => {
             return sendBadRequestResponse(res, "Please provide either email or contact number");
         }
 
+        const normalized = contactNo ? normalizeContactNo(contactNo) : null;
+
         // Find user by email or contactNo
         const user = await User.findOne({
             $or: [
-                contactNo ? { contactNo: contactNo } : null,
+                normalized ? { contactNo: normalized } : null,
                 email ? { email: email.toLowerCase() } : null
             ].filter(Boolean)
         });
@@ -236,8 +249,8 @@ export const forgotPassword = async (req, res) => {
         let sentTo = [];
 
         // Send to Phone if provided
-        if (contactNo) {
-            await phoneNoOtp(contactNo, otp);
+        if (normalized) {
+            await phoneNoOtp(normalized, otp);
             sentTo.push("mobile number");
         }
 
@@ -247,7 +260,7 @@ export const forgotPassword = async (req, res) => {
             sentTo.push("email");
         }
 
-        return sendSuccessResponse(res, `OTP sent to ${sentTo.join(" and ")}`, { email, contactNo });
+        return sendSuccessResponse(res, `OTP sent to ${sentTo.join(" and ")}`, { email, contactNo: normalized });
 
     } catch (error) {
         return sendErrorResponse(res, 500, error.message);
@@ -267,10 +280,12 @@ export const VerifyOtp = async (req, res) => {
             return sendBadRequestResponse(res, "Please provide contactNo or email.");
         }
 
+        const normalized = contactNo ? normalizeContactNo(contactNo) : null;
+
         // Search user by email or contactNo
         const user = await User.findOne({
             $or: [
-                contactNo ? { contactNo: contactNo } : null,
+                normalized ? { contactNo: normalized } : null,
                 email ? { email: email.toLowerCase() } : null
             ].filter(Boolean)
         });
