@@ -21,11 +21,6 @@ export const addReport = async (req, res) => {
             return sendNotFoundResponse(res, "ReportCategory not exist!!!");
         }
 
-        const existingReport = await Report.findOne({ user: req.user._id, reportCategoryId });
-        if (existingReport) {
-            return sendBadRequestResponse(res, "You have already submitted a report for this category.");
-        }
-
         const report = new Report({
             reportCategoryId,
             description,
