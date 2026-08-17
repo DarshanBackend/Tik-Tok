@@ -14,10 +14,21 @@ import { deleteFromS3 } from "../utils/uploadS3.js";
 
 export const register = async (req, res) => {
     try {
-        const { contactNo, mobileNo, email, password, name, role, profilePic } = req.body;
+        const { contactNo, mobileNo, email, password, name, role, profilePic, countryCode, country_code } = req.body;
+
+        const finalCountryCode = countryCode || country_code;
+        if (!finalCountryCode) {
+            return sendBadRequestResponse(res, "Country code is required.");
+        }
+
+        const cleanDigits = finalCountryCode.toString().replace(/\D/g, '');
+        if (!cleanDigits) {
+            return sendBadRequestResponse(res, "Valid country code is required.");
+        }
+        const parsedCountryCode = `+${cleanDigits}`;
 
         const finalContactNo = contactNo || mobileNo;
-        const normalizedContact = finalContactNo ? normalizeContactNo(finalContactNo) : null;
+        const normalizedContact = finalContactNo ? normalizeContactNo(finalContactNo, parsedCountryCode) : null;
 
         if (!normalizedContact && !email) {
             return sendBadRequestResponse(res, "Mobile number or Email is required.");
@@ -25,7 +36,7 @@ export const register = async (req, res) => {
 
         // Check for contactNo uniqueness if provided
         if (finalContactNo) {
-            const contactQueries = getContactNoQueries(finalContactNo);
+            const contactQueries = getContactNoQueries(finalContactNo, parsedCountryCode);
             const userByContact = await User.findOne({ contactNo: { $in: contactQueries } });
             if (userByContact) {
                 return sendBadRequestResponse(res, "Mobile number already taken");
@@ -63,6 +74,7 @@ export const register = async (req, res) => {
             name,
             email,
             contactNo: normalizedContact,
+            countryCode: parsedCountryCode,
             password: hashedPass,
             profilePic: profilePic || null,
             role: role || 'user',
@@ -79,7 +91,8 @@ export const register = async (req, res) => {
 
             return sendCreatedResponse(res, message, {
                 contactNo: normalizedContact,
-                email: email
+                email: email,
+                countryCode: parsedCountryCode
             });
         }
 
@@ -104,7 +117,11 @@ export const editProfile = async (req, res) => {
             bio,
             gender,
             isPrivate,
+            countryCode,
+            country_code,
         } = req.body;
+
+        const finalCountryCode = countryCode || country_code;
 
         if (!req.user || (req.user._id.toString() !== userId && req.user.role !== 'admin')) {
             return sendForbiddenResponse(res, "Access denied. You can only update your own profile.");
@@ -147,6 +164,13 @@ export const editProfile = async (req, res) => {
         if (bio) existingUser.bio = bio;
         if (gender) existingUser.gender = gender;
         if (isPrivate !== undefined) existingUser.isPrivate = isPrivate;
+        
+        if (finalCountryCode !== undefined) {
+            const cleanDigits = finalCountryCode.toString().replace(/\D/g, '');
+            if (cleanDigits) {
+                existingUser.countryCode = `+${cleanDigits}`;
+            }
+        }
 
         await existingUser.save();
         const userResponse = existingUser.toObject();
@@ -222,7 +246,11 @@ export const editUser = async (req, res) => {
             bio,
             gender,
             isPrivate,
+            countryCode,
+            country_code,
         } = req.body;
+
+        const finalCountryCode = countryCode || country_code;
 
         if (!req.user || (req.user._id.toString() !== userId && req.user.role !== 'admin')) {
             return sendForbiddenResponse(res, "Access denied. You can only update your own profile.");
@@ -249,6 +277,13 @@ export const editUser = async (req, res) => {
         if (bio) existingUser.bio = bio;
         if (gender) existingUser.gender = gender;
         if (isPrivate !== undefined) existingUser.isPrivate = isPrivate;
+        
+        if (finalCountryCode !== undefined) {
+            const cleanDigits = finalCountryCode.toString().replace(/\D/g, '');
+            if (cleanDigits) {
+                existingUser.countryCode = `+${cleanDigits}`;
+            }
+        }
 
         await existingUser.save();
         const userResponse = existingUser.toObject();

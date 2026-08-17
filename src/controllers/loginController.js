@@ -9,16 +9,17 @@ import twilio from 'twilio';
 
 export const generateOTP = () => Math.floor(1000 + Math.random() * 9000).toString();
 
-export const normalizeContactNo = (contactNo) => {
+export const normalizeContactNo = (contactNo, countryCode) => {
     if (!contactNo) return null;
     let digits = contactNo.toString().replace(/\D/g, '');
     if (digits.length === 10) {
-        digits = `91${digits}`;
+        const prefix = countryCode ? countryCode.toString().replace(/\D/g, '') : '91';
+        digits = `${prefix}${digits}`;
     }
     return Number(digits);
 };
 
-export const getContactNoQueries = (contactNo) => {
+export const getContactNoQueries = (contactNo, countryCode) => {
     if (!contactNo) return [];
     let digits = contactNo.toString().replace(/\D/g, '');
     if (!digits) return [];
@@ -26,12 +27,14 @@ export const getContactNoQueries = (contactNo) => {
     const results = new Set();
     results.add(Number(digits));
     
+    const prefix = countryCode ? countryCode.toString().replace(/\D/g, '') : '91';
+    
     if (digits.length === 10) {
-        results.add(Number(`91${digits}`));
+        results.add(Number(`${prefix}${digits}`));
     }
     
-    if (digits.length === 12 && digits.startsWith('91')) {
-        results.add(Number(digits.slice(2)));
+    if (digits.length === (10 + prefix.length) && digits.startsWith(prefix)) {
+        results.add(Number(digits.slice(prefix.length)));
     }
     
     return Array.from(results);
@@ -111,12 +114,23 @@ export const sendOtpEmail = async (email, otp) => {
 
 export const userLogin = async (req, res) => {
     try {
-        const { email, password, contactNo } = req.body;
+        const { email, password, contactNo, countryCode, country_code } = req.body;
+        const finalCountryCode = countryCode || country_code;
+
+        if (!finalCountryCode) {
+            return sendBadRequestResponse(res, "Country code is required.");
+        }
+
+        const cleanDigits = finalCountryCode.toString().replace(/\D/g, '');
+        if (!cleanDigits) {
+            return sendBadRequestResponse(res, "Valid country code is required.");
+        }
+        const parsedCountryCode = `+${cleanDigits}`;
 
         // 1. Contact Number Login (OTP)
-        if (contactNo && !email && !password) {
-            const normalized = normalizeContactNo(contactNo);
-            const contactQueries = getContactNoQueries(contactNo);
+        if (contactNo && !email && !password) {a
+            const normalized = normalizeContactNo(contactNo, parsedCountryCode);
+            const contactQueries = getContactNoQueries(contactNo, parsedCountryCode);
             // Check if user exists with this contactNo
             const user = await User.findOne({ contactNo: { $in: contactQueries } });
             if (!user) {
@@ -129,6 +143,7 @@ export const userLogin = async (req, res) => {
             // Set OTP and expiry (e.g., 5 minutes from now)
             user.otp = otp;
             user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+            user.countryCode = parsedCountryCode;
             await user.save();
 
             let sentTo = ["contact number"];
@@ -144,7 +159,8 @@ export const userLogin = async (req, res) => {
 
             return sendSuccessResponse(res, `OTP sent to ${sentTo.join(" and ")}`, {
                 contactNo: normalized,
-                email: user.email
+                email: user.email,
+                countryCode: user.countryCode
             });
         }
 
@@ -170,6 +186,7 @@ export const userLogin = async (req, res) => {
 
         // Always update lastLogin on successful login
         user.lastLogin = new Date();
+        user.countryCode = parsedCountryCode;
         await user.save();
 
         const token = await user.getJWT();
@@ -182,6 +199,7 @@ export const userLogin = async (req, res) => {
             name: user.name,
             email: user.email,
             contactNo: user.contactNo,
+            countryCode: user.countryCode,
             token: token
         });
     } catch (error) {
@@ -192,7 +210,8 @@ export const userLogin = async (req, res) => {
 // Verify contactno Otp
 export const VerifyPhone = async (req, res) => {
     try {
-        const { contactNo, email, otp } = req.body;
+        const { contactNo, email, otp, countryCode, country_code } = req.body;
+        const finalCountryCode = countryCode || country_code;
 
         if (!otp || (!contactNo && !email)) {
             return sendBadRequestResponse(res, "Please provide (contactNo or email) and OTP.");
@@ -221,6 +240,12 @@ export const VerifyPhone = async (req, res) => {
         user.lastLogin = new Date();
         user.otp = undefined;
         user.otpExpiry = undefined;
+        if (finalCountryCode) {
+            const cleanDigits = finalCountryCode.toString().replace(/\D/g, '');
+            if (cleanDigits) {
+                user.countryCode = `+${cleanDigits}`;
+            }
+        }
         await user.save();
 
         const token = await user.getJWT();
@@ -232,7 +257,8 @@ export const VerifyPhone = async (req, res) => {
             id: user._id,
             name: user.name,
             email: user.email,
-            contactNo: user.contactNo
+            contactNo: user.contactNo,
+            countryCode: user.countryCode
         });
 
     } catch (error) {
@@ -292,7 +318,8 @@ export const forgotPassword = async (req, res) => {
 //Verify Otp
 export const VerifyOtp = async (req, res) => {
     try {
-        const { contactNo, email, otp } = req.body;
+        const { contactNo, email, otp, countryCode, country_code } = req.body;
+        const finalCountryCode = countryCode || country_code;
 
         if (!otp) {
             return sendBadRequestResponse(res, "OTP is required.");
@@ -331,6 +358,12 @@ export const VerifyOtp = async (req, res) => {
         user.lastLogin = new Date();
         user.otp = undefined;
         user.otpExpiry = undefined;
+        if (finalCountryCode) {
+            const cleanDigits = finalCountryCode.toString().replace(/\D/g, '');
+            if (cleanDigits) {
+                user.countryCode = `+${cleanDigits}`;
+            }
+        }
         await user.save();
 
         const token = await user.getJWT();
@@ -343,6 +376,7 @@ export const VerifyOtp = async (req, res) => {
             name: user.name,
             email: user.email,
             contactNo: user.contactNo,
+            countryCode: user.countryCode,
             token: token
         });
     } catch (error) {
@@ -420,7 +454,18 @@ export const changePassword = async (req, res) => {
 
 export const googleAuth = async (req, res) => {
     try {
-        const { email, name, profilePic, uid } = req.body;
+        const { email, name, profilePic, uid, countryCode, country_code } = req.body;
+        const finalCountryCode = countryCode || country_code;
+
+        if (!finalCountryCode) {
+            return sendBadRequestResponse(res, "Country code is required.");
+        }
+
+        const cleanDigits = finalCountryCode.toString().replace(/\D/g, '');
+        if (!cleanDigits) {
+            return sendBadRequestResponse(res, "Valid country code is required.");
+        }
+        const parsedCountryCode = `+${cleanDigits}`;
 
         if (!email && !uid) {
             return sendBadRequestResponse(res, "Email or UID is required for Google authentication");
@@ -451,6 +496,7 @@ export const googleAuth = async (req, res) => {
                 profilePic: profilePic,
                 uid: uid,
                 role: 'user',
+                countryCode: parsedCountryCode
             });
         } else {
             // Update lastLogin
@@ -459,6 +505,7 @@ export const googleAuth = async (req, res) => {
             if (name && !user.name) user.name = name;
             if (profilePic && !user.profilePic) user.profilePic = profilePic;
             if (uid && !user.uid) user.uid = uid;
+            user.countryCode = parsedCountryCode;
             await user.save();
         }
 
@@ -473,6 +520,7 @@ export const googleAuth = async (req, res) => {
             email: user.email,
             profilePic: user.profilePic,
             uid: user.uid,
+            countryCode: user.countryCode,
             token: token
         });
     } catch (error) {
