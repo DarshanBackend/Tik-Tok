@@ -18,6 +18,26 @@ export const normalizeContactNo = (contactNo) => {
     return Number(digits);
 };
 
+export const getContactNoQueries = (contactNo) => {
+    if (!contactNo) return [];
+    let digits = contactNo.toString().replace(/\D/g, '');
+    if (!digits) return [];
+    
+    const results = new Set();
+    results.add(Number(digits));
+    
+    if (digits.length === 10) {
+        results.add(Number(`91${digits}`));
+    }
+    
+    if (digits.length === 12 && digits.startsWith('91')) {
+        results.add(Number(digits.slice(2)));
+    }
+    
+    return Array.from(results);
+};
+
+
 export const phoneNoOtp = async (contactNo, otp) => {
     const normalized = normalizeContactNo(contactNo);
     if (!normalized) {
@@ -96,8 +116,9 @@ export const userLogin = async (req, res) => {
         // 1. Contact Number Login (OTP)
         if (contactNo && !email && !password) {
             const normalized = normalizeContactNo(contactNo);
+            const contactQueries = getContactNoQueries(contactNo);
             // Check if user exists with this contactNo
-            const user = await User.findOne({ contactNo: normalized });
+            const user = await User.findOne({ contactNo: { $in: contactQueries } });
             if (!user) {
                 return sendErrorResponse(res, 404, "User not found with this contact number");
             }
@@ -177,10 +198,10 @@ export const VerifyPhone = async (req, res) => {
             return sendBadRequestResponse(res, "Please provide (contactNo or email) and OTP.");
         }
 
-        const normalized = contactNo ? normalizeContactNo(contactNo) : null;
+        const contactQueries = contactNo ? getContactNoQueries(contactNo) : [];
         const user = await User.findOne({
             $or: [
-                normalized ? { contactNo: normalized } : null,
+                contactQueries.length > 0 ? { contactNo: { $in: contactQueries } } : null,
                 email ? { email: email.toLowerCase() } : null
             ].filter(Boolean)
         });
@@ -228,11 +249,12 @@ export const forgotPassword = async (req, res) => {
         }
 
         const normalized = contactNo ? normalizeContactNo(contactNo) : null;
+        const contactQueries = contactNo ? getContactNoQueries(contactNo) : [];
 
         // Find user by email or contactNo
         const user = await User.findOne({
             $or: [
-                normalized ? { contactNo: normalized } : null,
+                contactQueries.length > 0 ? { contactNo: { $in: contactQueries } } : null,
                 email ? { email: email.toLowerCase() } : null
             ].filter(Boolean)
         });
@@ -280,12 +302,12 @@ export const VerifyOtp = async (req, res) => {
             return sendBadRequestResponse(res, "Please provide contactNo or email.");
         }
 
-        const normalized = contactNo ? normalizeContactNo(contactNo) : null;
+        const contactQueries = contactNo ? getContactNoQueries(contactNo) : [];
 
         // Search user by email or contactNo
         const user = await User.findOne({
             $or: [
-                normalized ? { contactNo: normalized } : null,
+                contactQueries.length > 0 ? { contactNo: { $in: contactQueries } } : null,
                 email ? { email: email.toLowerCase() } : null
             ].filter(Boolean)
         });

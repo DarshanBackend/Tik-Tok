@@ -1,5 +1,5 @@
 import User from "../models/userModel.js";
-import { generateOTP, phoneNoOtp, sendOtpEmail, normalizeContactNo } from "./loginController.js";
+import { generateOTP, phoneNoOtp, sendOtpEmail, normalizeContactNo, getContactNoQueries } from "./loginController.js";
 import { ThrowError } from "../utils/ErrorUtils.js"
 import mongoose from "mongoose"
 import bcrypt from "bcryptjs";
@@ -24,8 +24,9 @@ export const register = async (req, res) => {
         }
 
         // Check for contactNo uniqueness if provided
-        if (normalizedContact) {
-            const userByContact = await User.findOne({ contactNo: normalizedContact });
+        if (finalContactNo) {
+            const contactQueries = getContactNoQueries(finalContactNo);
+            const userByContact = await User.findOne({ contactNo: { $in: contactQueries } });
             if (userByContact) {
                 return sendBadRequestResponse(res, "Mobile number already taken");
             }
