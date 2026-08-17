@@ -58,7 +58,7 @@ export const getReportByUserId = async (req, res) => {
         if (!mongoose.Types.ObjectId.isValid(id)) {
             return sendBadRequestResponse(res, "Invalid User Id!!!");
         }
-        const reports = await Report.find({ user: id }).populate('reportCategoryId').populate('user','username');
+        const reports = await Report.find({ user: id }).populate('reportCategoryId').populate('user', 'username');
         if (!reports || reports.length === 0) {
             return sendNotFoundResponse(res, "Reports not found");
         }
@@ -76,7 +76,7 @@ export const getReportById = async (req, res) => {
             return sendBadRequestResponse(res, "Invalid Report Id!!!")
         }
 
-        const report = await Report.findById(id).populate('reportCategoryId').populate('user',"username");
+        const report = await Report.findById(id).populate('reportCategoryId').populate('user', "username");
         if (!report) {
             return sendNotFoundResponse(res, "Report not found");
         }
