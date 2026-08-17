@@ -13,7 +13,7 @@ app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:8000',
   credentials: true
 }));
-app.use('/public', express.static('public'));
+ 
 
 
 // router

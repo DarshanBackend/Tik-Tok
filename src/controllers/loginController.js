@@ -117,18 +117,19 @@ export const userLogin = async (req, res) => {
         const { email, password, contactNo, countryCode, country_code } = req.body;
         const finalCountryCode = countryCode || country_code;
 
-        if (!finalCountryCode) {
-            return sendBadRequestResponse(res, "Country code is required.");
-        }
-
-        const cleanDigits = finalCountryCode.toString().replace(/\D/g, '');
-        if (!cleanDigits) {
-            return sendBadRequestResponse(res, "Valid country code is required.");
-        }
-        const parsedCountryCode = `+${cleanDigits}`;
-
         // 1. Contact Number Login (OTP)
-        if (contactNo && !email && !password) {a
+        if (contactNo && !email && !password) {
+            // Strictly require country code for mobile login
+            if (!finalCountryCode) {
+                return sendBadRequestResponse(res, "Country code is required for mobile login.");
+            }
+
+            const cleanDigits = finalCountryCode.toString().replace(/\D/g, '');
+            if (!cleanDigits) {
+                return sendBadRequestResponse(res, "Valid country code is required.");
+            }
+            const parsedCountryCode = `+${cleanDigits}`;
+
             const normalized = normalizeContactNo(contactNo, parsedCountryCode);
             const contactQueries = getContactNoQueries(contactNo, parsedCountryCode);
             // Check if user exists with this contactNo
@@ -186,7 +187,14 @@ export const userLogin = async (req, res) => {
 
         // Always update lastLogin on successful login
         user.lastLogin = new Date();
-        user.countryCode = parsedCountryCode;
+        
+        // Optionally update country code if they provided it during email login
+        if (finalCountryCode) {
+            const cleanDigits = finalCountryCode.toString().replace(/\D/g, '');
+            if (cleanDigits) {
+                user.countryCode = `+${cleanDigits}`;
+            }
+        }
         await user.save();
 
         const token = await user.getJWT();
