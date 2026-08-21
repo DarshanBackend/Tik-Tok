@@ -172,6 +172,11 @@ export const getAllPost = async (req, res) => {
             };
         });
 
+        for (let i = formattedPosts.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [formattedPosts[i], formattedPosts[j]] = [formattedPosts[j], formattedPosts[i]];
+        }
+
         return res.status(200).json({
             success: true,
             message: "post fetched successfully...",
