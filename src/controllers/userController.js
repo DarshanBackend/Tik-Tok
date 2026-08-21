@@ -861,4 +861,45 @@ export const searchFollowersAndFollowing = async (req, res) => {
     }
 };
 
+export const removeFollower = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const followerId = req.params.id;
+
+        if (!mongoose.Types.ObjectId.isValid(followerId)) {
+            return sendBadRequestResponse(res, "Invalid Follower ID");
+        }
+
+        const user = await User.findById(userId);
+        const follower = await User.findById(followerId);
+
+        if (!user || !follower) {
+            return sendBadRequestResponse(res, "User not found");
+        }
+
+        const isFollower = user.followers.map(id => id.toString()).includes(followerId.toString());
+        if (!isFollower) {
+            return sendNotFoundResponse(res, "Not followers found");
+        }
+
+        await Promise.all([
+            User.findByIdAndUpdate(
+                userId,
+                { $pull: { followers: followerId } },
+                { new: true }
+            ),
+            User.findByIdAndUpdate(
+                followerId,
+                { $pull: { followings: userId } },
+                { new: true }
+            )
+        ]);
+
+        return sendSuccessResponse(res, "Follower removed successfully");
+    } catch (error) {
+        return sendErrorResponse(res, 500, error.message);
+    }
+};
+
+
 
