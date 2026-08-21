@@ -23,20 +23,20 @@ export const getContactNoQueries = (contactNo, countryCode) => {
     if (!contactNo) return [];
     let digits = contactNo.toString().replace(/\D/g, '');
     if (!digits) return [];
-    
+
     const results = new Set();
     results.add(Number(digits));
-    
+
     const prefix = countryCode ? countryCode.toString().replace(/\D/g, '') : '91';
-    
+
     if (digits.length === 10) {
         results.add(Number(`${prefix}${digits}`));
     }
-    
+
     if (digits.length === (10 + prefix.length) && digits.startsWith(prefix)) {
         results.add(Number(digits.slice(prefix.length)));
     }
-    
+
     return Array.from(results);
 };
 
@@ -117,18 +117,28 @@ export const userLogin = async (req, res) => {
         const { email, password, contactNo, countryCode, country_code } = req.body;
         const finalCountryCode = countryCode || country_code;
 
-        if (!finalCountryCode) {
-            return sendBadRequestResponse(res, "Country code is required.");
-        }
+        let parsedCountryCode = null;
+        if (contactNo) {
+            if (!finalCountryCode) {
+                return sendBadRequestResponse(res, "Country code is required.");
+            }
 
-        const cleanDigits = finalCountryCode.toString().replace(/\D/g, '');
-        if (!cleanDigits) {
-            return sendBadRequestResponse(res, "Valid country code is required.");
+            const cleanDigits = finalCountryCode.toString().replace(/\D/g, '');
+            if (!cleanDigits) {
+                return sendBadRequestResponse(res, "Valid country code is required.");
+            }
+            parsedCountryCode = `+${cleanDigits}`;
+        } else {
+            if (finalCountryCode) {
+                const cleanDigits = finalCountryCode.toString().replace(/\D/g, '');
+                if (cleanDigits) {
+                    parsedCountryCode = `+${cleanDigits}`;
+                }
+            }
         }
-        const parsedCountryCode = `+${cleanDigits}`;
 
         // 1. Contact Number Login (OTP)
-        if (contactNo && !email && !password) {a
+        if (contactNo && !email && !password) {
             const normalized = normalizeContactNo(contactNo, parsedCountryCode);
             const contactQueries = getContactNoQueries(contactNo, parsedCountryCode);
             // Check if user exists with this contactNo
@@ -186,7 +196,9 @@ export const userLogin = async (req, res) => {
 
         // Always update lastLogin on successful login
         user.lastLogin = new Date();
-        user.countryCode = parsedCountryCode;
+        if (parsedCountryCode) {
+            user.countryCode = parsedCountryCode;
+        }
         await user.save();
 
         const token = await user.getJWT();

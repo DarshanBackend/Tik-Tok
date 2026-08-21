@@ -3,7 +3,7 @@ import { upload, convertJfifToJpeg, uploadToS3Middleware } from "../middlewares/
 import { listAllS3Images, deleteFromS3 } from "../utils/uploadS3.js";
 import { sendSuccessResponse, sendErrorResponse, sendBadRequestResponse } from "../utils/ResponseUtils.js";
 import { isAdmin, isUser, UserAuth } from "../middlewares/auth.js";
-import { deleteUser, editProfile, editUser, followOrUnfollow, getAllUsers, getUserById, register, searchUsers, suggestedUsers, getUserProfile, getFollowersList, getFollowingList, getFollowRequests, acceptFollowRequest, rejectFollowRequest, searchFollowersAndFollowing } from "../controllers/userController.js";
+import { deleteUser, editProfile, editUser, followOrUnfollow, getAllUsers, getUserById, register, searchUsers, suggestedUsers, getUserProfile, getFollowersList, getFollowingList, getFollowRequests, acceptFollowRequest, rejectFollowRequest, searchFollowersAndFollowing, removeFollower } from "../controllers/userController.js";
 import { changePassword, forgotPassword, googleAuth, resetPassword, userLogin, VerifyOtp, VerifyPhone } from "../controllers/loginController.js";
 import { addTermsOfServices, deleteTermsOfServices, getAllTermsOfServices, getTermsOfServicesById, updateTermsOfServices } from "../controllers/termsOfServicesController.js";
 import { addPrivacyPolicy, deletePrivacyPolicy, getAllPrivacyPolicy, getPrivacyPolicyById, updatePrivacyPolicy } from "../controllers/privacyPolicyController.js";
@@ -141,6 +141,7 @@ indexRoutes.post("/followOrUnfollow/:id", UserAuth, isUser, followOrUnfollow)
 indexRoutes.get("/getFollowRequests", UserAuth, isUser, getFollowRequests)
 indexRoutes.post("/acceptFollowRequest/:id", UserAuth, isUser, acceptFollowRequest)
 indexRoutes.post("/rejectFollowRequest/:id", UserAuth, isUser, rejectFollowRequest)
+indexRoutes.post("/removeFollower/:id", UserAuth, isUser, removeFollower)
 indexRoutes.get("/getTaggedPosts", UserAuth, getTaggedPosts)
 indexRoutes.post("/toggleBlockUser/:targetUserId", UserAuth, toggleBlockUser)
 

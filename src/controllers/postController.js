@@ -172,7 +172,12 @@ export const getAllPost = async (req, res) => {
             };
         });
 
-        return sendSuccessResponse(res, "post fetched successfully...", formattedPosts)
+        return res.status(200).json({
+            success: true,
+            message: "post fetched successfully...",
+            totalPosts: formattedPosts.length,
+            result: formattedPosts
+        });
     } catch (error) {
         console.log(error);
         return sendErrorResponse(res, 500, "Internal Server Error");
