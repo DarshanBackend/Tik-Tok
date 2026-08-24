@@ -137,14 +137,27 @@ export const getAllPost = async (req, res) => {
 
         const posts = await Post.find(query)
             .sort({ createdAt: -1 })
-            .populate({ path: "user", select: "profilePic name followers" })
+            .populate({ path: "user", select: "profilePic name followers isPrivate" })
             .populate({ path: "audioId", select: "audio_name audio_image audio artist_name" });
 
-        if (!posts || posts.length === 0) {
+        const filteredPosts = posts.filter((post) => {
+            if (!post.user) return false;
+            if (post.user.isPrivate) {
+                if (!viewerId) return false;
+                const isSelf = post.user._id.toString() === viewerId.toString();
+                const isFollower = Array.isArray(post.user.followers) && post.user.followers.some(
+                    (followerId) => followerId.toString() === viewerId.toString()
+                );
+                return isSelf || isFollower;
+            }
+            return true;
+        });
+
+        if (!filteredPosts || filteredPosts.length === 0) {
             return sendNotFoundResponse(res, "No posts found...")
         }
 
-        const formattedPosts = posts.map((post) => {
+        const formattedPosts = filteredPosts.map((post) => {
             const postObj = post.toObject();
             let isFollowing = false;
 
@@ -156,6 +169,10 @@ export const getAllPost = async (req, res) => {
 
             if (postObj.user && postObj.user.followers) {
                 delete postObj.user.followers;
+            }
+
+            if (postObj.user && 'isPrivate' in postObj.user) {
+                delete postObj.user.isPrivate;
             }
 
             let isLike = false;
